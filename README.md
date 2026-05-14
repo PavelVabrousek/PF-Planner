@@ -65,3 +65,19 @@ docs/database.md
 ## Safety Notes
 
 The repository ignores local secrets, imported portfolio paste data, Supabase CLI temp files, build artifacts, logs, and dependency folders.
+
+## Vercel Deployment
+
+PFP is a monorepo and the deployable Next.js app lives in `apps/web`.
+
+In Vercel Project Settings, use:
+
+```text
+Framework Preset: Next.js
+Root Directory: apps/web
+Build Command: npm run build
+Output Directory: leave empty / default
+Install Command: leave default, or npm install
+```
+
+Do not set the Output Directory to `public` or `.next`. Vercel should handle the Next.js build output itself.
