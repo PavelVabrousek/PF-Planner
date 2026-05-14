@@ -1,7 +1,7 @@
 {
   "name": "pf-planner",
   "private": true,
-  "packageManager": "pnpm@10.11.0",
+  "packageManager": "npm@11.9.0",
   "scripts": {
     "dev": "npm --workspace apps/web run dev",
     "build": "npm --workspace apps/web run build",
