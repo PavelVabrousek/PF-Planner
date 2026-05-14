@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: #0f1115;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background:
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.12), transparent 32rem),
+    linear-gradient(180deg, #0f1115 0%, #10131a 48%, #0f1115 100%);
+  color: #e5e7eb;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(59, 130, 246, 0.35);
+}
+
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  .transaction-history-surface {
+    background-color: #162018;
+  }
+
+  .transaction-history-surface-header {
+    background-color: rgba(22, 32, 24, 0.95);
+  }
+
+  .asset-chart-surface {
+    background-color: #211313;
+  }
+
+  .asset-chart-surface-header {
+    background-color: rgba(33, 19, 19, 0.95);
+  }
+
+  html:not(.dark) .transaction-history-surface {
+    background-color: #edf6ef;
+  }
+
+  html:not(.dark) .transaction-history-surface-header {
+    background-color: rgba(237, 246, 239, 0.95);
+  }
+
+  html:not(.dark) .asset-chart-surface {
+    background-color: #fff1f1;
+  }
+
+  html:not(.dark) .asset-chart-surface-header {
+    background-color: rgba(255, 241, 241, 0.95);
+  }
+}

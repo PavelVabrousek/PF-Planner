@@ -1,0 +1,20 @@
+{
+  "name": "pf-planner",
+  "private": true,
+  "packageManager": "pnpm@10.11.0",
+  "scripts": {
+    "dev": "npm --workspace apps/web run dev",
+    "build": "npm --workspace apps/web run build",
+    "lint": "npm --workspace apps/web run lint",
+    "typecheck": "npm --workspace apps/web run typecheck"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "dependencies": {
+    "@supabase/supabase-js": "^2.105.4",
+    "@types/pg": "^8.20.0",
+    "pg": "^8.20.0"
+  }
+}
