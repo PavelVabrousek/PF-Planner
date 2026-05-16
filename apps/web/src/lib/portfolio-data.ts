@@ -8,6 +8,8 @@ import {
   workQueue as demoWorkQueue,
   type Holding,
 } from "@/lib/demo-data";
+import { canUseDemoFallback } from "@/lib/auth/config";
+import type { CurrentPfpUser } from "@/lib/auth/current-user";
 import { createPostgresPool } from "@/lib/db/postgres";
 import { defaultNumberFormatPreferences, formatCurrencyAmount, formatNumber, formatPercent } from "@/lib/format";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -1077,14 +1079,14 @@ function mapTransactionJoinRow(row: DbTransactionJoinRow): DbTransaction {
   };
 }
 
-async function getPostgresDashboardData(): Promise<DashboardData | null> {
+async function getPostgresDashboardData(user: CurrentPfpUser): Promise<DashboardData | null> {
   const pool = createPostgresPool();
 
   if (!pool) {
     return null;
   }
 
-  const userId = process.env.PFP_SUPABASE_USER_ID ?? null;
+  const userId = user.dataUserId;
   const portfolioName = process.env.PFP_PORTFOLIO_NAME ?? null;
 
   try {
@@ -1093,7 +1095,7 @@ async function getPostgresDashboardData(): Promise<DashboardData | null> {
       select id, name, base_currency, cost_basis_method
       from public.portfolios
       where is_archived = false
-        and ($1::uuid is null or user_id = $1::uuid)
+        and user_id = $1::uuid
       order by
         case when $2::text is not null and name = $2::text then 0 else 1 end,
         created_at asc
@@ -1105,7 +1107,11 @@ async function getPostgresDashboardData(): Promise<DashboardData | null> {
     const portfolio = portfolioResult.rows[0];
 
     if (!portfolio) {
-      return demoData("Demo data: connected to hosted Supabase, but no portfolio rows were returned.");
+      if (canUseDemoFallback()) {
+        return demoData("Demo data: connected to hosted Supabase, but no portfolio rows were returned.");
+      }
+
+      throw new Error("No portfolio rows were returned for the authenticated PFP user.");
     }
 
     const transactionsResult = await pool.query<DbTransactionJoinRow>(
@@ -1239,6 +1245,11 @@ async function getPostgresDashboardData(): Promise<DashboardData | null> {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown database error";
+
+    if (!canUseDemoFallback()) {
+      throw new Error(`Hosted Supabase database query failed (${message}).`);
+    }
+
     return demoData(`Demo data: hosted Supabase database query failed (${message}).`);
   }
 }
@@ -1331,8 +1342,8 @@ function buildDashboardFromRows({
   };
 }
 
-export async function getDashboardData(): Promise<DashboardData> {
-  const postgresData = await getPostgresDashboardData();
+export async function getDashboardData(user: CurrentPfpUser): Promise<DashboardData> {
+  const postgresData = await getPostgresDashboardData(user);
 
   if (postgresData) {
     return postgresData;
@@ -1341,6 +1352,10 @@ export async function getDashboardData(): Promise<DashboardData> {
   const supabase = createServerSupabaseClient();
 
   if (!supabase) {
+    if (!canUseDemoFallback()) {
+      throw new Error("Supabase is not configured for production data access.");
+    }
+
     return demoData("Demo data: add Supabase env vars in apps/web/.env.local to read the real database.");
   }
 
@@ -1348,17 +1363,26 @@ export async function getDashboardData(): Promise<DashboardData> {
     .from("portfolios")
     .select("id,name,base_currency,cost_basis_method")
     .eq("is_archived", false)
+    .eq("user_id", user.dataUserId)
     .order("created_at", { ascending: true })
     .limit(1)
     .returns<DbPortfolio[]>();
 
   if (portfoliosError) {
+    if (!canUseDemoFallback()) {
+      throw new Error(`Supabase portfolios query failed (${portfoliosError.message}).`);
+    }
+
     return demoData(`Demo data: Supabase portfolios query failed (${portfoliosError.message}).`);
   }
 
   const portfolio = portfolios?.[0];
 
   if (!portfolio) {
+    if (!canUseDemoFallback()) {
+      throw new Error("No portfolio rows were returned from Supabase for the authenticated PFP user.");
+    }
+
     return demoData("Demo data: no portfolio rows were returned from Supabase.");
   }
 
@@ -1372,6 +1396,10 @@ export async function getDashboardData(): Promise<DashboardData> {
     .returns<DbTransaction[]>();
 
   if (transactionsError) {
+    if (!canUseDemoFallback()) {
+      throw new Error(`Supabase transactions query failed (${transactionsError.message}).`);
+    }
+
     return demoData(`Demo data: Supabase transactions query failed (${transactionsError.message}).`);
   }
 

@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import type { CurrentPfpUser } from "@/lib/auth/current-user";
 import { createPostgresPool } from "@/lib/db/postgres";
 
 type AssetRow = {
@@ -652,6 +653,7 @@ async function getIncrementalFxStartDate(pool: Pool, assetCurrencies: string[], 
 }
 
 export async function recalculatePortfolioData(
+  user: CurrentPfpUser,
   onProgress?: RecalculateProgressHandler,
   mode: RecalculateMode = "full",
 ): Promise<RecalculateSummary> {
@@ -661,7 +663,7 @@ export async function recalculatePortfolioData(
     throw new Error("Missing PFP_SUPABASE_DATABASE_URL or DATABASE_URL.");
   }
 
-  const userId = process.env.PFP_SUPABASE_USER_ID ?? null;
+  const userId = user.dataUserId;
   const portfolioName = process.env.PFP_PORTFOLIO_NAME ?? null;
   const { start, end, endDate } = getDateRange();
   const warnings: string[] = [];
@@ -687,7 +689,7 @@ export async function recalculatePortfolioData(
     join public.assets a on a.id = t.asset_id
     left join public.daily_prices dp on dp.asset_id = a.id
     where p.is_archived = false
-      and ($1::uuid is null or p.user_id = $1::uuid)
+      and p.user_id = $1::uuid
       and ($2::text is null or p.name = $2::text)
     group by
       p.id,

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getCurrentPfpUser, type CurrentPfpUser } from "@/lib/auth/current-user";
 import { createPostgresPool } from "@/lib/db/postgres";
 
 export const runtime = "nodejs";
@@ -150,7 +151,7 @@ function fxRateAtOrBefore(rates: FxRateRow[], targetDate: string) {
   return rates.find((rate) => rate.rate_date <= targetDate);
 }
 
-async function getPortfolioCurrency(assetId: string) {
+async function getPortfolioCurrency(assetId: string, user: CurrentPfpUser) {
   const pool = createPostgresPool();
 
   if (!pool) {
@@ -163,10 +164,11 @@ async function getPortfolioCurrency(assetId: string) {
     from public.transactions t
     join public.portfolios p on p.id = t.portfolio_id
     where t.asset_id = $1::uuid
+      and p.user_id = $2::uuid
     order by t.trade_date asc
     limit 1
     `,
-    [assetId],
+    [assetId, user.dataUserId],
   );
 
   return portfolioCurrencyResult.rows[0]?.base_currency ?? null;
@@ -322,6 +324,15 @@ async function fetchYahooIntraday(asset: AssetRow) {
 }
 
 export async function GET(request: Request, context: { params: Promise<{ assetId: string }> }) {
+  const auth = await getCurrentPfpUser();
+
+  if (auth.status !== "authenticated") {
+    return NextResponse.json(
+      { error: auth.message },
+      { status: auth.status === "forbidden" ? 403 : 401, headers: { "cache-control": "no-store" } },
+    );
+  }
+
   const { assetId } = await context.params;
   const url = new URL(request.url);
   const range = normalizeRange(url.searchParams.get("range"));
@@ -329,6 +340,13 @@ export async function GET(request: Request, context: { params: Promise<{ assetId
   const pool = createPostgresPool();
 
   if (!pool || assetId.startsWith("demo-")) {
+    if (!auth.user.isLocalBypass && !assetId.startsWith("demo-")) {
+      return NextResponse.json(
+        { error: "Missing database connection for asset history." },
+        { status: 503, headers: { "cache-control": "no-store" } },
+      );
+    }
+
     return NextResponse.json(
       {
         asset: {
@@ -360,12 +378,19 @@ export async function GET(request: Request, context: { params: Promise<{ assetId
 
   const assetResult = await pool.query<AssetRow>(
     `
-    select id, symbol, name, currency::text as currency, provider_symbol
-    from public.assets
-    where id = $1::uuid
+    select a.id, a.symbol, a.name, a.currency::text as currency, a.provider_symbol
+    from public.assets a
+    where a.id = $1::uuid
+      and exists (
+        select 1
+        from public.transactions t
+        join public.portfolios p on p.id = t.portfolio_id
+        where t.asset_id = a.id
+          and p.user_id = $2::uuid
+      )
     limit 1
     `,
-    [assetId],
+    [assetId, auth.user.dataUserId],
   );
   const asset = assetResult.rows[0];
 
@@ -374,7 +399,7 @@ export async function GET(request: Request, context: { params: Promise<{ assetId
   }
 
   if (range === "1D") {
-    const portfolioCurrency = await getPortfolioCurrency(assetId);
+    const portfolioCurrency = await getPortfolioCurrency(assetId, auth.user);
 
     try {
       const intraday = await fetchYahooIntraday(asset);
@@ -433,11 +458,13 @@ export async function GET(request: Request, context: { params: Promise<{ assetId
     pool.query<{ first_buy_date: string | null }>(
       `
       select min(trade_date)::text as first_buy_date
-      from public.transactions
-      where asset_id = $1::uuid
-        and type = 'BUY'
+      from public.transactions t
+      join public.portfolios p on p.id = t.portfolio_id
+      where t.asset_id = $1::uuid
+        and p.user_id = $2::uuid
+        and t.type = 'BUY'
       `,
-      [assetId],
+      [assetId, auth.user.dataUserId],
     ),
   ]);
   const latestDate = latestPriceResult.rows[0]?.latest_date;
@@ -471,7 +498,7 @@ export async function GET(request: Request, context: { params: Promise<{ assetId
     [assetId, startDate],
   );
   const assetCurrency = pricesResult.rows[0]?.currency ?? asset.currency;
-  const portfolioCurrency = await getPortfolioCurrency(assetId);
+  const portfolioCurrency = await getPortfolioCurrency(assetId, auth.user);
   const targetCurrency =
     requestedCurrency && (requestedCurrency === assetCurrency || requestedCurrency === portfolioCurrency)
       ? requestedCurrency

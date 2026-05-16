@@ -4,12 +4,15 @@ import {
   ArrowUpRight,
   Bell,
   DatabaseZap,
+  LogOut,
   Plus,
   Search,
 } from "lucide-react";
+import { redirect } from "next/navigation";
 import { AllocationChart, PortfolioChart } from "@/components/portfolio-chart";
 import { HoldingActions } from "@/components/holding-actions";
 import { RecalculatePortfolioButton } from "@/components/recalculate-portfolio-button";
+import { getCurrentPfpUser } from "@/lib/auth/current-user";
 import { navItems } from "@/lib/demo-data";
 import { defaultNumberFormatPreferences, formatCurrencyAmount, formatCurrencyNumber, formatPercent } from "@/lib/format";
 import { getDashboardData } from "@/lib/portfolio-data";
@@ -44,7 +47,17 @@ function formatPerformance(value: number, label: string) {
 }
 
 export default async function DashboardPage() {
-  const dashboard = await getDashboardData();
+  const auth = await getCurrentPfpUser();
+
+  if (auth.status !== "authenticated") {
+    if (auth.status === "forbidden") {
+      redirect("/login?error=forbidden");
+    }
+
+    redirect(`/login?next=/&error=${auth.status === "misconfigured" ? "misconfigured" : ""}`);
+  }
+
+  const dashboard = await getDashboardData(auth.user);
   const { holdings, metrics, portfolioSeries, transactions, watchlist, workQueue } = dashboard;
 
   return (
@@ -74,6 +87,17 @@ export default async function DashboardPage() {
           >
             <Bell size={17} />
           </button>
+          <div className="hidden min-w-0 text-right md:block">
+            <p className="max-w-40 truncate text-[11px] text-slate-500">{auth.user.email}</p>
+            <p className="text-[10px] text-slate-600">{auth.user.isLocalBypass ? "Local bypass" : "Google login"}</p>
+          </div>
+          <a
+            href="/auth/logout"
+            aria-label="Sign out"
+            className="hidden h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-panel text-slate-300 hover:border-neutral/50 hover:text-slate-50 md:flex"
+          >
+            <LogOut size={16} />
+          </a>
           <RecalculatePortfolioButton />
           <RecalculatePortfolioButton mode="incremental" label="Update" />
           <button

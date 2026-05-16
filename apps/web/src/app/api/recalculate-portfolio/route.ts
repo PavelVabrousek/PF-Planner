@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getCurrentPfpUser } from "@/lib/auth/current-user";
 import {
   recalculatePortfolioData,
   type RecalculateProgressEvent,
@@ -8,6 +9,15 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  const auth = await getCurrentPfpUser();
+
+  if (auth.status !== "authenticated") {
+    return NextResponse.json(
+      { error: auth.message },
+      { status: auth.status === "forbidden" ? 403 : 401, headers: { "cache-control": "no-store" } },
+    );
+  }
+
   const encoder = new TextEncoder();
   const url = new URL(request.url);
   const mode = url.searchParams.get("mode") === "incremental" ? "incremental" : "full";
@@ -35,7 +45,7 @@ export async function POST(request: Request) {
         type: "preparing",
         message: mode === "incremental" ? "Opening incremental market data stream" : "Opening market data stream",
       });
-      await recalculatePortfolioData(send, mode);
+      await recalculatePortfolioData(auth.user, send, mode);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown recalculation error";
       await send({ type: "error", error: message });
