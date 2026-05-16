@@ -9,12 +9,12 @@ import {
 } from "lucide-react";
 import { redirect } from "next/navigation";
 import { AllocationChart, PortfolioChart } from "@/components/portfolio-chart";
-import { HoldingActions } from "@/components/holding-actions";
+import { HoldingsTable } from "@/components/holdings-table";
 import { RecalculatePortfolioButton } from "@/components/recalculate-portfolio-button";
 import { TransactionButton } from "@/components/transaction-button";
 import { getCurrentPfpUser } from "@/lib/auth/current-user";
 import { navItems } from "@/lib/demo-data";
-import { defaultNumberFormatPreferences, formatCurrencyAmount, formatCurrencyNumber, formatPercent } from "@/lib/format";
+import { defaultNumberFormatPreferences, formatCurrencyAmount, formatPercent } from "@/lib/format";
 import { getDashboardData } from "@/lib/portfolio-data";
 import { cn } from "@/lib/utils";
 
@@ -153,76 +153,11 @@ export default async function DashboardPage() {
             />
           </article>
 
-          <article className="rounded-lg border border-white/10 bg-panel p-3 shadow-panel">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-50">Holdings</h2>
-              <span className="text-xs text-slate-500">
-                {dashboard.costBasisMethod} MVP view · {dashboard.baseCurrency}
-              </span>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[720px] border-separate border-spacing-0 text-left text-xs">
-                <thead className="text-slate-500">
-                  <tr>
-                    <th className="border-b border-white/10 pb-2 font-medium">Asset</th>
-                    <th className="border-b border-white/10 pb-2 font-medium">Type</th>
-                    <th className="border-b border-white/10 pb-2 text-right font-medium">Latest price</th>
-                    <th className="border-b border-white/10 pb-2 text-right font-medium">
-                      Value {dashboard.baseCurrency}
-                    </th>
-                    <th className="border-b border-white/10 pb-2 text-right font-medium">Alloc.</th>
-                    <th className="border-b border-white/10 pb-2 text-right font-medium">Day</th>
-                    <th className="border-b border-white/10 pb-2 text-right font-medium">Return</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {holdings.map((holding) => (
-                    <tr key={holding.symbol} className="text-slate-200">
-                      <td className="border-b border-white/5 py-0.5">
-                        <div className="flex min-w-0 items-center gap-1.5 whitespace-nowrap">
-                          <HoldingActions holding={holding} portfolioCurrency={dashboard.baseCurrency} />
-                          <div className="flex min-w-0 items-baseline gap-2">
-                            <span className="shrink-0 font-semibold">{holding.symbol}</span>
-                            <span className="min-w-0 truncate text-[11px] text-slate-500">
-                              {holding.name} · {holding.broker}
-                            </span>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="border-b border-white/5 py-0.5 text-slate-400">
-                        {holding.type}
-                      </td>
-                      <td className="border-b border-white/5 py-0.5 text-right font-mono tabular">
-                        {formatCurrencyAmount(holding.latestPrice, holding.currency)}
-                      </td>
-                      <td className="border-b border-white/5 py-0.5 text-right font-mono tabular">
-                        {formatCurrencyNumber(holding.valueCzk)}
-                      </td>
-                      <td className="border-b border-white/5 py-0.5 text-right font-mono tabular">
-                        {formatPercent(holding.allocation, defaultNumberFormatPreferences, { sign: "never" })}
-                      </td>
-                      <td
-                        className={cn(
-                          "border-b border-white/5 py-0.5 text-right font-mono tabular",
-                          holding.dayChange >= 0 ? "text-positive" : "text-negative",
-                        )}
-                      >
-                        {formatPercent(holding.dayChange, defaultNumberFormatPreferences, { sign: "always" })}
-                      </td>
-                      <td
-                        className={cn(
-                          "border-b border-white/5 py-0.5 text-right font-mono tabular",
-                          holding.totalReturn >= 0 ? "text-positive" : "text-negative",
-                        )}
-                      >
-                        {formatPercent(holding.totalReturn, defaultNumberFormatPreferences, { sign: "always" })}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </article>
+          <HoldingsTable
+            holdings={holdings}
+            portfolioCurrency={dashboard.baseCurrency}
+            costBasisMethod={dashboard.costBasisMethod}
+          />
         </div>
 
         <aside className="space-y-3">

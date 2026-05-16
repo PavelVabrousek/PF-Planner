@@ -16,7 +16,7 @@ import {
 export type Holding = {
   symbol: string;
   name: string;
-  type: "STOCK" | "ETF" | "CRYPTO";
+  type: "STOCK" | "ETF" | "CRYPTO" | "CASH";
   broker: string;
   currency: "USD" | "EUR" | "CZK" | "CHF" | "DKK" | "PLN" | "GBP";
   latestPrice: number | null;
@@ -52,7 +52,7 @@ export const holdings: Holding[] = [
   {
     symbol: "VWCE",
     name: "Vanguard FTSE All-World",
-    type: "ETF",
+    type: "CASH",
     broker: "XETRA",
     currency: "EUR",
     latestPrice: 128.2,

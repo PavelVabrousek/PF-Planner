@@ -36,6 +36,7 @@ type DbTransaction = {
   id: string;
   portfolio_id: string;
   asset_id: string | null;
+  cash_account_id: string | null;
   type:
     | "BUY"
     | "SELL"
@@ -86,6 +87,14 @@ type DbCorporateAction = {
   metadata: {
     yahooSymbol?: string;
   } | null;
+};
+
+type DbPortfolioCashAccount = {
+  id: string;
+  portfolio_id: string;
+  broker: string;
+  currency: string;
+  name: string | null;
 };
 
 type PeriodKey = "D" | "W" | "M" | "Y";
@@ -420,6 +429,25 @@ function transactionPortfolioValue(
   return rate === null ? 0 : value * rate;
 }
 
+function cashAccountDelta(transaction: DbTransaction) {
+  const gross = transactionCashValue(transaction);
+  const feeAndTax = toNumber(transaction.fee) + toNumber(transaction.tax);
+
+  if (transaction.type === "CASH_DEPOSIT" || transaction.type === "SELL" || transaction.type === "DIVIDEND") {
+    return gross - feeAndTax;
+  }
+
+  if (transaction.type === "CASH_WITHDRAWAL" || transaction.type === "BUY" || transaction.type === "FEE" || transaction.type === "TAX") {
+    return -(gross + feeAndTax);
+  }
+
+  if (transaction.type === "CASH_ADJUSTMENT") {
+    return gross;
+  }
+
+  return 0;
+}
+
 function quantityHeldOnDate(transactions: DbTransaction[], assetId: string, targetDate: string) {
   return transactions.reduce((quantity, transaction) => {
     if (transaction.asset_id !== assetId || transaction.trade_date > targetDate) {
@@ -541,7 +569,6 @@ function buildPortfolioSeries(
   const latestPriceDate = pricedDates.sort().at(-1);
   const endDate = latestPriceDate ? new Date(`${latestPriceDate}T00:00:00Z`) : new Date();
   const earliestTransactionDate = transactions
-    .filter((transaction) => transaction.asset_id && (transaction.type === "BUY" || transaction.type === "SELL"))
     .map((transaction) => transaction.trade_date)
     .sort()[0];
   const tenYearsAgo = subtractYears(endDate, 10);
@@ -550,7 +577,6 @@ function buildPortfolioSeries(
       ? new Date(`${earliestTransactionDate}T00:00:00Z`)
       : tenYearsAgo;
   const sortedTransactions = transactions
-    .filter((transaction) => transaction.asset_id && (transaction.type === "BUY" || transaction.type === "SELL"))
     .sort((left, right) => left.trade_date.localeCompare(right.trade_date));
   const ascendingPrices = new Map(
     Array.from(priceHistory.entries()).map(([assetId, prices]) => [
@@ -559,6 +585,7 @@ function buildPortfolioSeries(
     ]),
   );
   const quantities = new Map<string, number>();
+  const cashBalances = new Map<string, { currency: string; balance: number }>();
   const priceIndexes = new Map<string, number>();
   const currentPrices = new Map<string, DbDailyPrice>();
   const series: PortfolioSeriesPoint[] = [];
@@ -574,10 +601,20 @@ function buildPortfolioSeries(
       const transaction = sortedTransactions[transactionIndex];
       const assetId = transaction.asset_id;
 
-      if (assetId) {
+      if (assetId && (transaction.type === "BUY" || transaction.type === "SELL")) {
         const signedQuantity =
           transaction.type === "BUY" ? toNumber(transaction.quantity) : -toNumber(transaction.quantity);
         quantities.set(assetId, (quantities.get(assetId) ?? 0) + signedQuantity);
+      }
+
+      if (transaction.cash_account_id) {
+        const existing = cashBalances.get(transaction.cash_account_id) ?? {
+          currency: transaction.currency,
+          balance: 0,
+        };
+        existing.balance += cashAccountDelta(transaction);
+        existing.currency = transaction.currency;
+        cashBalances.set(transaction.cash_account_id, existing);
       }
 
       transactionIndex += 1;
@@ -594,7 +631,7 @@ function buildPortfolioSeries(
       priceIndexes.set(assetId, priceIndex);
     }
 
-    const value = Array.from(quantities.entries()).reduce((sum, [assetId, quantity]) => {
+    const assetValue = Array.from(quantities.entries()).reduce((sum, [assetId, quantity]) => {
       if (quantity <= 0) {
         return sum;
       }
@@ -605,11 +642,20 @@ function buildPortfolioSeries(
 
       return markPrice > 0 && rate !== null ? sum + quantity * markPrice * rate : sum;
     }, 0);
+    const cashValue = Array.from(cashBalances.values()).reduce((sum, account) => {
+      if (Math.abs(account.balance) <= 0.000001) {
+        return sum;
+      }
+
+      const rate = conversionRate(fxHistory, account.currency, portfolioCurrency, key);
+
+      return rate === null ? sum : sum + account.balance * rate;
+    }, 0);
 
     series.push({
       date: key,
       label: formatSeriesLabel(date),
-      value,
+      value: assetValue + cashValue,
     });
   }
 
@@ -844,6 +890,7 @@ function buildHoldings(
   fxHistory: Map<string, DbFxRate[]>,
   portfolioCurrency: string,
   corporateActions: DbCorporateAction[] = [],
+  cashAccounts: DbPortfolioCashAccount[] = [],
 ) {
   const firstBuyDates = new Map<string, string>();
 
@@ -926,7 +973,7 @@ function buildHoldings(
     aggregates.set(transaction.asset_id, existing);
   }
 
-  const rows = Array.from(aggregates.entries())
+  const assetRows = Array.from(aggregates.entries())
     .map(([assetId, aggregate]) => {
       const prices = priceHistory.get(assetId) ?? [];
       const dividendHistory = buildDividendHistory({
@@ -1008,8 +1055,47 @@ function buildHoldings(
         }),
       } satisfies DashboardHolding;
     })
-    .filter((holding) => holding.valueCzk > 0.000001)
-    .sort((left, right) => right.valueCzk - left.valueCzk);
+    .filter((holding) => holding.valueCzk > 0.000001);
+  const cashRows = cashAccounts.flatMap((account): DashboardHolding[] => {
+    const balance = transactions
+      .filter((transaction) => transaction.cash_account_id === account.id)
+      .reduce((sum, transaction) => sum + cashAccountDelta(transaction), 0);
+
+    if (Math.abs(balance) <= 0.000001) {
+      return [];
+    }
+
+    const rate = conversionRate(fxHistory, account.currency, portfolioCurrency, dateKey(new Date()));
+    const value = rate === null ? (account.currency === portfolioCurrency ? balance : 0) : balance * rate;
+
+    if (Math.abs(value) <= 0.000001) {
+      return [];
+    }
+
+    return [
+      {
+        assetId: `cash-${account.id}`,
+        symbol: `CASH ${account.currency}`,
+        name: account.name ?? `${account.broker} cash`,
+        type: "CASH",
+        broker: account.broker,
+        currency: account.currency as Holding["currency"],
+        latestPrice: 1,
+        valueCzk: value,
+        allocation: 0,
+        dayChange: 0,
+        periodChange: { D: 0, W: 0, M: 0, Y: 0 },
+        totalReturn: 0,
+        costPortfolio: 0,
+        dividendsPortfolio: 0,
+        profitLossPortfolio: 0,
+        buyTransactions: [],
+        dividendHistory: [],
+        chartEvents: [],
+      },
+    ];
+  });
+  const rows = [...assetRows, ...cashRows].sort((left, right) => right.valueCzk - left.valueCzk);
 
   const totalValue = rows.reduce((sum, holding) => sum + holding.valueCzk, 0);
 
@@ -1025,6 +1111,7 @@ function buildAllocation(holdings: Holding[]) {
     ETF: "#3B82F6",
     STOCK: "#22C55E",
     CRYPTO: "#F59E0B",
+    CASH: "#94A3B8",
   };
 
   const totals = holdings.reduce<Record<string, number>>((accumulator, holding) => {
@@ -1069,6 +1156,7 @@ function mapTransactionJoinRow(row: DbTransactionJoinRow): DbTransaction {
     id: row.id,
     portfolio_id: row.portfolio_id,
     asset_id: row.asset_id,
+    cash_account_id: row.cash_account_id,
     type: row.type,
     trade_date: row.trade_date,
     quantity: row.quantity,
@@ -1135,6 +1223,7 @@ async function getPostgresDashboardData(user: CurrentPfpUser): Promise<Dashboard
         t.id,
         t.portfolio_id,
         t.asset_id,
+        t.cash_account_id,
         t.type,
         t.trade_date::text as trade_date,
         t.quantity,
@@ -1160,6 +1249,22 @@ async function getPostgresDashboardData(user: CurrentPfpUser): Promise<Dashboard
     );
 
     const rows = transactionsResult.rows.map(mapTransactionJoinRow);
+    const cashAccountsResult = await pool.query<DbPortfolioCashAccount>(
+      `
+      select
+        id,
+        portfolio_id,
+        broker,
+        currency::text as currency,
+        name
+      from public.portfolio_cash_accounts
+      where portfolio_id = $1::uuid
+        and is_active = true
+      order by broker, currency
+      `,
+      [portfolio.id],
+    );
+    const cashAccounts = cashAccountsResult.rows;
     const assetIds = Array.from(new Set(rows.map((transaction) => transaction.asset_id).filter(Boolean))) as string[];
     const priceHistory = new Map<string, DbDailyPrice[]>();
     const fxHistory = new Map<string, DbFxRate[]>();
@@ -1214,6 +1319,7 @@ async function getPostgresDashboardData(user: CurrentPfpUser): Promise<Dashboard
         [
           ...rows.flatMap((transaction) => [transaction.currency, transaction.assets?.currency]),
           ...corporateActions.map((action) => action.currency),
+          ...cashAccounts.map((account) => account.currency),
           ...Array.from(priceHistory.values()).flatMap((prices) => prices.map((price) => price.currency)),
         ]
           .filter((currency): currency is string => Boolean(currency) && currency !== portfolioCurrency),
@@ -1256,6 +1362,7 @@ async function getPostgresDashboardData(user: CurrentPfpUser): Promise<Dashboard
       priceHistory,
       fxHistory,
       corporateActions,
+      cashAccounts,
       sourceMessage: `Live hosted Supabase data from ${portfolio.name}. P/L uses portfolio-currency cost, current value, realized proceeds, and net dividends when FX is available.`,
     });
   } catch (error) {
@@ -1275,6 +1382,7 @@ function buildDashboardFromRows({
   priceHistory,
   fxHistory,
   corporateActions,
+  cashAccounts,
   sourceMessage,
 }: {
   portfolio: DbPortfolio;
@@ -1282,9 +1390,10 @@ function buildDashboardFromRows({
   priceHistory: Map<string, DbDailyPrice[]>;
   fxHistory: Map<string, DbFxRate[]>;
   corporateActions: DbCorporateAction[];
+  cashAccounts: DbPortfolioCashAccount[];
   sourceMessage: string;
 }): DashboardData {
-  const holdings = buildHoldings(rows, priceHistory, fxHistory, portfolio.base_currency, corporateActions);
+  const holdings = buildHoldings(rows, priceHistory, fxHistory, portfolio.base_currency, corporateActions, cashAccounts);
   const netWorth = holdings.reduce((sum, holding) => sum + holding.valueCzk, 0);
   const totalCost = holdings.reduce((sum, holding) => sum + holding.costPortfolio, 0);
   const portfolioProfitLoss = holdings.reduce((sum, holding) => sum + holding.profitLossPortfolio, 0);
@@ -1404,7 +1513,7 @@ export async function getDashboardData(user: CurrentPfpUser): Promise<DashboardD
   const { data: transactions, error: transactionsError } = await supabase
     .from("transactions")
     .select(
-      "id,portfolio_id,asset_id,type,trade_date,quantity,price,gross_amount,fee,tax,currency,source,metadata,assets(id,symbol,broker,name,currency,asset_type,provider_symbol,isin)",
+      "id,portfolio_id,asset_id,cash_account_id,type,trade_date,quantity,price,gross_amount,fee,tax,currency,source,metadata,assets(id,symbol,broker,name,currency,asset_type,provider_symbol,isin)",
     )
     .eq("portfolio_id", portfolio.id)
     .order("trade_date", { ascending: false })
@@ -1419,6 +1528,13 @@ export async function getDashboardData(user: CurrentPfpUser): Promise<DashboardD
   }
 
   const rows = transactions ?? [];
+  const { data: cashAccounts } = await supabase
+    .from("portfolio_cash_accounts")
+    .select("id,portfolio_id,broker,currency,name")
+    .eq("portfolio_id", portfolio.id)
+    .eq("is_active", true)
+    .order("broker", { ascending: true })
+    .returns<DbPortfolioCashAccount[]>();
   const assetIds = Array.from(new Set(rows.map((transaction) => transaction.asset_id).filter(Boolean))) as string[];
   const priceHistory = new Map<string, DbDailyPrice[]>();
   let corporateActions: DbCorporateAction[] = [];
@@ -1452,6 +1568,7 @@ export async function getDashboardData(user: CurrentPfpUser): Promise<DashboardD
     priceHistory,
     fxHistory: new Map(),
     corporateActions,
+    cashAccounts: cashAccounts ?? [],
     sourceMessage: `Live Supabase data from ${portfolio.name}. Values use latest daily prices when available; P/L conversion needs stored FX rates.`,
   });
 }
