@@ -13,6 +13,7 @@ The database must support the Phase 1 MVP:
 - Stocks, ETFs, and crypto assets.
 - Dividends.
 - Fees and taxes.
+- Portfolio cash accounts and cash movements.
 - Realized and unrealized P/L.
 - Holdings overview.
 - Portfolio allocation.
@@ -69,6 +70,7 @@ User-owned tables:
 
 - `profiles`
 - `portfolios`
+- `portfolio_cash_accounts`
 - `transactions`
 - `imports`
 - `import_rows`
@@ -89,7 +91,9 @@ erDiagram
     AUTH_USERS ||--|| PROFILES : owns
     PROFILES ||--o{ PORTFOLIOS : owns
     PROFILES ||--o{ IMPORTS : starts
+    PORTFOLIOS ||--o{ PORTFOLIO_CASH_ACCOUNTS : contains
     PORTFOLIOS ||--o{ TRANSACTIONS : contains
+    PORTFOLIO_CASH_ACCOUNTS ||--o{ TRANSACTIONS : settled_by
     IMPORTS ||--o{ IMPORT_ROWS : stages
     IMPORTS ||--o{ TRANSACTIONS : creates
     ASSETS ||--o{ TRANSACTIONS : referenced_by
@@ -112,6 +116,9 @@ transaction_type:
   DIVIDEND
   FEE
   TAX
+  CASH_DEPOSIT
+  CASH_WITHDRAWAL
+  CASH_ADJUSTMENT
 
 asset_type:
   STOCK
@@ -233,6 +240,41 @@ RLS:
 - Normal users may not insert, update, or delete assets.
 - Trusted server jobs may write assets.
 
+## portfolio_cash_accounts
+
+User-owned cash ledgers inside a portfolio. These accounts represent broker or venue cash balances by currency, for example `PATRIA · CZK`, `XTB · EUR`, or `BYBIT · USD`.
+
+Cash accounts are not shared market assets. They are portfolio state and should be displayed as holdings by deriving balances from immutable transaction rows.
+
+| Column | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `id` | `uuid` | yes | Primary key. |
+| `portfolio_id` | `uuid` | yes | References `portfolios(id)` with cascade delete. |
+| `broker` | `text` | yes | Broker, exchange, venue, or manual namespace. Examples: `PATRIA`, `XTB`, `BYBIT`, `MANUAL`. |
+| `currency` | `char(3)` | yes | Cash account currency. |
+| `name` | `text` | no | Optional display label when broker/currency is not enough. |
+| `is_active` | `boolean` | yes | Default `true`. Inactive accounts remain available for history. |
+| `created_at` | `timestamptz` | yes | Default `now()`. |
+| `updated_at` | `timestamptz` | yes | Default `now()`. |
+
+Indexes and constraints:
+
+- Unique `(portfolio_id, lower(broker), currency)`.
+- Index on `portfolio_id`.
+- Check `broker` is not blank.
+- Check `currency ~ '^[A-Z]{3}$'`.
+
+RLS:
+
+- Users can access cash accounts only through ownership of the parent portfolio.
+
+Important semantics:
+
+- Balances are derived, not stored as mutable current balances.
+- Deposits, withdrawals, buy/sell settlement, dividends, fees, taxes, and corrections should be represented as immutable transaction rows.
+- If a balance correction is needed, add `CASH_ADJUSTMENT`; do not overwrite prior cash movements.
+- Future FX conversion should be modeled deliberately as a paired cash movement or dedicated conversion workflow, not as a single ambiguous balance edit.
+
 ## transactions
 
 Immutable user-owned financial events.
@@ -244,7 +286,8 @@ Transactions represent user-level portfolio activity. They are not market-level 
 | `id` | `uuid` | yes | Primary key. |
 | `portfolio_id` | `uuid` | yes | References `portfolios(id)` with cascade delete. |
 | `asset_id` | `uuid` | conditional | References `assets(id)`. Required for `BUY`, `SELL`, and `DIVIDEND`. Optional for portfolio-level `FEE` or `TAX`. |
-| `type` | `text` | yes | `BUY`, `SELL`, `DIVIDEND`, `FEE`, `TAX`. |
+| `cash_account_id` | `uuid` | conditional | References `portfolio_cash_accounts(id)`. Required for cash-only movement types. Optional but recommended for `BUY`, `SELL`, `DIVIDEND`, `FEE`, and `TAX` once manual transaction entry supports cash settlement. |
+| `type` | `text` | yes | `BUY`, `SELL`, `DIVIDEND`, `FEE`, `TAX`, `CASH_DEPOSIT`, `CASH_WITHDRAWAL`, or `CASH_ADJUSTMENT`. |
 | `trade_date` | `date` | yes | Economic date of the event. |
 | `settlement_date` | `date` | no | Optional later support. |
 | `quantity` | `numeric(38, 12)` | conditional | Positive quantity for buys/sells. |
@@ -267,6 +310,10 @@ Important semantics:
 - `SELL` means cash enters the portfolio from asset sale.
 - `DIVIDEND` means user-level cash income received for an asset.
 - `FEE` and `TAX` represent explicit costs and can optionally reference an asset or related import.
+- `CASH_DEPOSIT` increases a portfolio cash account and has no `asset_id`.
+- `CASH_WITHDRAWAL` decreases a portfolio cash account and has no `asset_id`.
+- `CASH_ADJUSTMENT` is an explicit correction row for cash reconciliation and has no `asset_id`.
+- A transaction `cash_account_id`, when present, must belong to the same portfolio as the transaction.
 - Do not mutate transactions to handle splits, corrections, or recalculations. Add new records or corporate actions.
 
 Indexes and constraints:
@@ -279,10 +326,12 @@ Indexes and constraints:
 - Check `currency ~ '^[A-Z]{3}$'`.
 - Check `fee >= 0`.
 - Check `tax >= 0`.
-- Check `type in ('BUY', 'SELL', 'DIVIDEND', 'FEE', 'TAX')`.
+- Check `type in ('BUY', 'SELL', 'DIVIDEND', 'FEE', 'TAX', 'CASH_DEPOSIT', 'CASH_WITHDRAWAL', 'CASH_ADJUSTMENT')`.
 - Check `quantity > 0` for `BUY` and `SELL`.
 - Check `price >= 0` for `BUY` and `SELL`.
 - Check `asset_id is not null` for `BUY`, `SELL`, and `DIVIDEND`.
+- Check cash-only transaction types have `cash_account_id`, `gross_amount`, and no `asset_id`, `quantity`, or `price`.
+- Use a trigger to ensure `cash_account_id` belongs to the same portfolio as `portfolio_id`.
 
 RLS:
 
@@ -468,6 +517,7 @@ RLS:
 These should not be core mutable source-of-truth tables in the MVP:
 
 - Current holdings.
+- Current cash balances.
 - Allocation percentages.
 - Realized P/L.
 - Unrealized P/L.
@@ -477,6 +527,7 @@ These should not be core mutable source-of-truth tables in the MVP:
 Prefer computed queries, service functions, or materialized/cache tables that can be rebuilt from:
 
 - `transactions`
+- `portfolio_cash_accounts`
 - `daily_prices`
 - `corporate_actions`
 - `fx_rates`
@@ -509,6 +560,7 @@ Minimum policy coverage:
 - `profiles`: user can access `id = auth.uid()`.
 - `portfolios`: user can access `user_id = auth.uid()`.
 - `transactions`: user can access rows whose portfolio belongs to `auth.uid()`.
+- `portfolio_cash_accounts`: user can access rows whose portfolio belongs to `auth.uid()`.
 - `imports`: user can access `user_id = auth.uid()`.
 - `import_rows`: user can access rows whose import belongs to `auth.uid()`.
 - `assets`: authenticated users can read.
@@ -544,7 +596,7 @@ Important: raw transactions are conceptually immutable. Avoid update/delete poli
 2. Create enum types or constrained text domains.
 3. Create `profiles`.
 4. Create shared reference tables: `assets`, `daily_prices`, `corporate_actions`, `fx_rates`.
-5. Create user-owned portfolio tables: `portfolios`, `imports`, `import_rows`, `transactions`.
+5. Create user-owned portfolio tables: `portfolios`, `portfolio_cash_accounts`, `imports`, `import_rows`, `transactions`.
 6. Add indexes and unique constraints.
 7. Enable RLS on all user-owned tables.
 8. Add read-only RLS for shared/reference tables.
@@ -562,4 +614,4 @@ These should be resolved before writing production migrations:
 - Exact correction workflow for immutable transaction mistakes.
 - Whether import rows should be retained forever or pruned after commit.
 - Runtime location for `yfinance` or any Python-based market-data job.
-- Whether future account/broker support needs an `accounts` table between portfolios and transactions.
+- Exact workflow for FX conversion between two portfolio cash accounts.
