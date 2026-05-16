@@ -5,13 +5,13 @@ import {
   Bell,
   DatabaseZap,
   LogOut,
-  Plus,
   Search,
 } from "lucide-react";
 import { redirect } from "next/navigation";
 import { AllocationChart, PortfolioChart } from "@/components/portfolio-chart";
 import { HoldingActions } from "@/components/holding-actions";
 import { RecalculatePortfolioButton } from "@/components/recalculate-portfolio-button";
+import { TransactionButton } from "@/components/transaction-button";
 import { getCurrentPfpUser } from "@/lib/auth/current-user";
 import { navItems } from "@/lib/demo-data";
 import { defaultNumberFormatPreferences, formatCurrencyAmount, formatCurrencyNumber, formatPercent } from "@/lib/format";
@@ -100,13 +100,7 @@ export default async function DashboardPage() {
           </a>
           <RecalculatePortfolioButton />
           <RecalculatePortfolioButton mode="incremental" label="Update" />
-          <button
-            type="button"
-            className="flex h-9 items-center gap-2 rounded-md bg-neutral px-3 text-xs font-medium text-white hover:bg-blue-500"
-          >
-            <Plus size={16} />
-            <span className="hidden sm:inline">Transaction</span>
-          </button>
+          <TransactionButton portfolioCurrency={dashboard.baseCurrency} />
         </div>
       </header>
 

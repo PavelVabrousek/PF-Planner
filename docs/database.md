@@ -217,6 +217,7 @@ Shared reference table for tradable or reportable instruments.
 | --- | --- | --- | --- |
 | `id` | `uuid` | yes | Primary key. |
 | `symbol` | `text` | yes | Normalized uppercase ticker/symbol. |
+| `isin` | `text` | no | Optional ISIN used by manual search/import matching. |
 | `broker` | `text` | yes | Broker, exchange, venue, or provider namespace, for example `PATRIA`, `XTB`, `NASDAQ`, `XETRA`, `CRYPTO`. |
 | `name` | `text` | no | Human-readable asset name. |
 | `currency` | `char(3)` | yes | Native trading currency. |
@@ -230,8 +231,10 @@ Shared reference table for tradable or reportable instruments.
 Indexes and constraints:
 
 - Unique `(broker, symbol)`.
+- Unique `isin` where `isin is not null`.
 - Index on `(asset_type, currency)`.
 - Check `currency ~ '^[A-Z]{3}$'`.
+- Check `isin` uses the standard 12-character ISIN shape when present.
 - Check `asset_type in ('STOCK', 'ETF', 'CRYPTO', 'CASH')` until expanded.
 
 RLS:
@@ -273,7 +276,7 @@ Important semantics:
 - Balances are derived, not stored as mutable current balances.
 - Deposits, withdrawals, buy/sell settlement, dividends, fees, taxes, and corrections should be represented as immutable transaction rows.
 - If a balance correction is needed, add `CASH_ADJUSTMENT`; do not overwrite prior cash movements.
-- Future FX conversion should be modeled deliberately as a paired cash movement or dedicated conversion workflow, not as a single ambiguous balance edit.
+- FX conversion is modeled as a paired `CASH_WITHDRAWAL` and `CASH_DEPOSIT` sharing `metadata.conversion_group_id`.
 
 ## transactions
 
@@ -313,6 +316,7 @@ Important semantics:
 - `CASH_DEPOSIT` increases a portfolio cash account and has no `asset_id`.
 - `CASH_WITHDRAWAL` decreases a portfolio cash account and has no `asset_id`.
 - `CASH_ADJUSTMENT` is an explicit correction row for cash reconciliation and has no `asset_id`.
+- Currency conversion should create two rows: source-currency `CASH_WITHDRAWAL` and target-currency `CASH_DEPOSIT`, linked by `metadata.transaction_intent = 'FX_CONVERSION'` and the same `metadata.conversion_group_id`.
 - A transaction `cash_account_id`, when present, must belong to the same portfolio as the transaction.
 - Do not mutate transactions to handle splits, corrections, or recalculations. Add new records or corporate actions.
 
@@ -614,4 +618,4 @@ These should be resolved before writing production migrations:
 - Exact correction workflow for immutable transaction mistakes.
 - Whether import rows should be retained forever or pruned after commit.
 - Runtime location for `yfinance` or any Python-based market-data job.
-- Exact workflow for FX conversion between two portfolio cash accounts.
+- Whether FX conversion should later become a dedicated table with two transaction ids and explicit provider/broker execution metadata.

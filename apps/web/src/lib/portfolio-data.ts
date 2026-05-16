@@ -24,6 +24,7 @@ type DbPortfolio = {
 type DbAsset = {
   id: string;
   symbol: string;
+  isin?: string | null;
   broker: string;
   name: string | null;
   currency: string;
@@ -35,7 +36,15 @@ type DbTransaction = {
   id: string;
   portfolio_id: string;
   asset_id: string | null;
-  type: "BUY" | "SELL" | "DIVIDEND" | "FEE" | "TAX";
+  type:
+    | "BUY"
+    | "SELL"
+    | "DIVIDEND"
+    | "FEE"
+    | "TAX"
+    | "CASH_DEPOSIT"
+    | "CASH_WITHDRAWAL"
+    | "CASH_ADJUSTMENT";
   trade_date: string;
   quantity: string | number | null;
   price: string | number | null;
@@ -610,7 +619,13 @@ function buildPortfolioSeries(
 function buildTransactions(transactions: DbTransaction[]) {
   return transactions.slice(0, 4).map((transaction) => {
     const cash = transactionCashValue(transaction) + toNumber(transaction.fee) + toNumber(transaction.tax);
-    const amount = transaction.type === "BUY" || transaction.type === "FEE" || transaction.type === "TAX" ? -cash : cash;
+    const amount =
+      transaction.type === "BUY" ||
+      transaction.type === "FEE" ||
+      transaction.type === "TAX" ||
+      transaction.type === "CASH_WITHDRAWAL"
+        ? -cash
+        : cash;
 
     return {
       type: transaction.type,
@@ -1389,7 +1404,7 @@ export async function getDashboardData(user: CurrentPfpUser): Promise<DashboardD
   const { data: transactions, error: transactionsError } = await supabase
     .from("transactions")
     .select(
-      "id,portfolio_id,asset_id,type,trade_date,quantity,price,gross_amount,fee,tax,currency,source,metadata,assets(id,symbol,broker,name,currency,asset_type,provider_symbol)",
+      "id,portfolio_id,asset_id,type,trade_date,quantity,price,gross_amount,fee,tax,currency,source,metadata,assets(id,symbol,broker,name,currency,asset_type,provider_symbol,isin)",
     )
     .eq("portfolio_id", portfolio.id)
     .order("trade_date", { ascending: false })
