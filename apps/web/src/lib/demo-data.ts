@@ -17,7 +17,7 @@ export type Holding = {
   symbol: string;
   name: string;
   type: "STOCK" | "ETF" | "CRYPTO";
-  exchange: string;
+  broker: string;
   currency: "USD" | "EUR" | "CZK" | "CHF" | "DKK" | "PLN" | "GBP";
   latestPrice: number | null;
   valueCzk: number;
@@ -53,7 +53,7 @@ export const holdings: Holding[] = [
     symbol: "VWCE",
     name: "Vanguard FTSE All-World",
     type: "ETF",
-    exchange: "XETRA",
+    broker: "XETRA",
     currency: "EUR",
     latestPrice: 128.2,
     valueCzk: 742250,
@@ -65,7 +65,7 @@ export const holdings: Holding[] = [
     symbol: "AAPL",
     name: "Apple Inc.",
     type: "STOCK",
-    exchange: "NASDAQ",
+    broker: "NASDAQ",
     currency: "USD",
     latestPrice: 204.6,
     valueCzk: 286900,
@@ -77,7 +77,7 @@ export const holdings: Holding[] = [
     symbol: "BTC",
     name: "Bitcoin",
     type: "CRYPTO",
-    exchange: "CRYPTO",
+    broker: "CRYPTO",
     currency: "USD",
     latestPrice: 92410,
     valueCzk: 263700,
@@ -89,7 +89,7 @@ export const holdings: Holding[] = [
     symbol: "MSFT",
     name: "Microsoft Corp.",
     type: "STOCK",
-    exchange: "NASDAQ",
+    broker: "NASDAQ",
     currency: "USD",
     latestPrice: 428.8,
     valueCzk: 222480,
@@ -101,7 +101,7 @@ export const holdings: Holding[] = [
     symbol: "CASH",
     name: "Broker cash",
     type: "ETF",
-    exchange: "MANUAL",
+    broker: "MANUAL",
     currency: "CZK",
     latestPrice: 1,
     valueCzk: 174070,

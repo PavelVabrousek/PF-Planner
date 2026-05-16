@@ -217,7 +217,7 @@ Shared reference table for tradable or reportable instruments.
 | --- | --- | --- | --- |
 | `id` | `uuid` | yes | Primary key. |
 | `symbol` | `text` | yes | Normalized uppercase ticker/symbol. |
-| `exchange` | `text` | yes | Exchange or provider namespace, for example `NASDAQ`, `NYSE`, `XETRA`, `CRYPTO`. |
+| `broker` | `text` | yes | Broker, exchange, venue, or provider namespace, for example `PATRIA`, `XTB`, `NASDAQ`, `XETRA`, `CRYPTO`. |
 | `name` | `text` | no | Human-readable asset name. |
 | `currency` | `char(3)` | yes | Native trading currency. |
 | `asset_type` | `text` | yes | `STOCK`, `ETF`, `CRYPTO`, or future type. |
@@ -229,7 +229,7 @@ Shared reference table for tradable or reportable instruments.
 
 Indexes and constraints:
 
-- Unique `(exchange, symbol)`.
+- Unique `(broker, symbol)`.
 - Index on `(asset_type, currency)`.
 - Check `currency ~ '^[A-Z]{3}$'`.
 - Check `asset_type in ('STOCK', 'ETF', 'CRYPTO', 'CASH')` until expanded.

@@ -190,7 +190,7 @@ export default async function DashboardPage() {
                           <div className="flex min-w-0 items-baseline gap-2">
                             <span className="shrink-0 font-semibold">{holding.symbol}</span>
                             <span className="min-w-0 truncate text-[11px] text-slate-500">
-                              {holding.name} · {holding.exchange}
+                              {holding.name} · {holding.broker}
                             </span>
                           </div>
                         </div>

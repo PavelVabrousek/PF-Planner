@@ -24,7 +24,7 @@ type DbPortfolio = {
 type DbAsset = {
   id: string;
   symbol: string;
-  exchange: string;
+  broker: string;
   name: string | null;
   currency: string;
   asset_type: Holding["type"] | "CASH";
@@ -144,7 +144,7 @@ export type AssetChartEvent = {
 
 type DbTransactionJoinRow = Omit<DbTransaction, "assets"> & {
   asset_symbol: string | null;
-  asset_exchange: string | null;
+  asset_broker: string | null;
   asset_name: string | null;
   asset_currency: string | null;
   asset_type: DbAsset["asset_type"] | null;
@@ -962,7 +962,7 @@ function buildHoldings(
         symbol: aggregate.asset.symbol,
         name: aggregate.asset.name ?? aggregate.asset.symbol,
         type: aggregate.asset.asset_type === "CASH" ? "ETF" : aggregate.asset.asset_type,
-        exchange: aggregate.asset.exchange,
+        broker: aggregate.asset.broker,
         currency: aggregate.asset.currency as Holding["currency"],
         latestPrice: latestPriceAssetCurrency,
         valueCzk: value,
@@ -1065,11 +1065,11 @@ function mapTransactionJoinRow(row: DbTransactionJoinRow): DbTransaction {
     source: row.source,
     metadata: row.metadata,
     assets:
-      row.asset_id && row.asset_symbol && row.asset_exchange && row.asset_currency && row.asset_type
+      row.asset_id && row.asset_symbol && row.asset_broker && row.asset_currency && row.asset_type
         ? {
             id: row.asset_id,
             symbol: row.asset_symbol,
-            exchange: row.asset_exchange,
+            broker: row.asset_broker,
             name: row.asset_name,
             currency: row.asset_currency,
             asset_type: row.asset_type,
@@ -1131,7 +1131,7 @@ async function getPostgresDashboardData(user: CurrentPfpUser): Promise<Dashboard
         t.source,
         t.metadata,
         a.symbol as asset_symbol,
-        a.exchange as asset_exchange,
+        a.broker as asset_broker,
         a.name as asset_name,
         a.currency as asset_currency,
         a.asset_type as asset_type,
@@ -1389,7 +1389,7 @@ export async function getDashboardData(user: CurrentPfpUser): Promise<DashboardD
   const { data: transactions, error: transactionsError } = await supabase
     .from("transactions")
     .select(
-      "id,portfolio_id,asset_id,type,trade_date,quantity,price,gross_amount,fee,tax,currency,source,metadata,assets(id,symbol,exchange,name,currency,asset_type,provider_symbol)",
+      "id,portfolio_id,asset_id,type,trade_date,quantity,price,gross_amount,fee,tax,currency,source,metadata,assets(id,symbol,broker,name,currency,asset_type,provider_symbol)",
     )
     .eq("portfolio_id", portfolio.id)
     .order("trade_date", { ascending: false })

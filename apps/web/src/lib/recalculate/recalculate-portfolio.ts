@@ -5,7 +5,7 @@ import { createPostgresPool } from "@/lib/db/postgres";
 type AssetRow = {
   id: string;
   symbol: string;
-  exchange: string;
+  broker: string;
   name: string | null;
   currency: string;
   asset_type: string;
@@ -676,7 +676,7 @@ export async function recalculatePortfolioData(
       p.base_currency,
       a.id,
       a.symbol,
-      a.exchange,
+      a.broker,
       a.name,
       a.currency,
       a.asset_type,
@@ -697,7 +697,7 @@ export async function recalculatePortfolioData(
       p.base_currency,
       a.id,
       a.symbol,
-      a.exchange,
+      a.broker,
       a.name,
       a.currency,
       a.asset_type,

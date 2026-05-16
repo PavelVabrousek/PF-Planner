@@ -243,7 +243,7 @@ export function PortfolioChart({
   );
 }
 
-type AllocationMode = "type" | "currency" | "exchange";
+type AllocationMode = "type" | "currency" | "broker";
 
 type AllocationRow = {
   name: string;
@@ -255,7 +255,7 @@ type AllocationRow = {
 const allocationModes = [
   { id: "type", label: "Type" },
   { id: "currency", label: "Currency" },
-  { id: "exchange", label: "Exchange" },
+  { id: "broker", label: "Broker" },
 ] satisfies Array<{ id: AllocationMode; label: string }>;
 
 const allocationColors = [
@@ -278,7 +278,7 @@ function allocationKey(holding: DashboardData["holdings"][number], mode: Allocat
     return holding.currency;
   }
 
-  return holding.exchange;
+  return holding.broker;
 }
 
 function buildAllocationRows(holdings: DashboardData["holdings"], mode: AllocationMode): AllocationRow[] {

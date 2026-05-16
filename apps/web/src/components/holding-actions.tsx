@@ -39,7 +39,7 @@ type HoldingActionData = {
   assetId: string;
   symbol: string;
   name: string;
-  exchange: string;
+  broker: string;
   type: string;
   currency: string;
   valueCzk: number;
@@ -1016,7 +1016,7 @@ function EditScaffold({ holding }: { holding: HoldingActionData }) {
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       <Field label="Symbol" value={holding.symbol} />
-      <Field label="Exchange" value={holding.exchange} />
+      <Field label="Broker" value={holding.broker} />
       <Field label="Name" value={holding.name} />
       <Field label="Type" value={holding.type} />
       <Field label="Currency" value={holding.currency} />
