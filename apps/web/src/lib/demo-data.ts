@@ -1,5 +1,4 @@
 import {
-  Activity,
   BarChart3,
   CircleDollarSign,
   Home,
@@ -7,8 +6,6 @@ import {
   Layers3,
   LineChart,
   MoreHorizontal,
-  PieChart,
-  ReceiptText,
   Target,
   WalletCards,
 } from "lucide-react";
@@ -155,17 +152,4 @@ export const metrics = [
     tone: "neutral",
     icon: CircleDollarSign,
   },
-  {
-    label: "Import status",
-    value: "42 rows",
-    delta: "3 need review",
-    tone: "warning",
-    icon: ReceiptText,
-  },
-];
-
-export const workQueue = [
-  { label: "Paste import preview", detail: "Google Sheets parser ready", icon: ReceiptText },
-  { label: "Daily price sync", detail: "Stale by 1 market day", icon: Activity },
-  { label: "Allocation drift", detail: "Crypto is 2.10% above target", icon: PieChart },
 ];

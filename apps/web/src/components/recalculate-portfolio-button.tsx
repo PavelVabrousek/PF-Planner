@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Calculator, CheckCircle2, Loader2, X, XCircle } from "lucide-react";
+import { Calculator, CheckCircle2, Loader2, RefreshCw, X, XCircle } from "lucide-react";
 import { defaultNumberFormatPreferences, formatNumber, formatPercent } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -220,16 +220,23 @@ export function RecalculatePortfolioButton({
       <div className="hidden items-center gap-2 md:flex">
         <button
           type="button"
+          aria-label={label}
+          title={label}
           onClick={recalculate}
           disabled={status === "running"}
           className={cn(
-            "flex h-9 items-center gap-2 rounded-md border border-white/10 bg-panel px-3 text-xs font-medium text-slate-200 hover:border-neutral/50 hover:text-slate-50 disabled:cursor-wait disabled:opacity-70",
+            "flex h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-panel text-slate-200 hover:border-neutral/50 hover:text-slate-50 disabled:cursor-wait disabled:opacity-70",
             status === "done" && "border-positive/40 text-positive",
             status === "error" && "border-negative/40 text-negative",
           )}
         >
-          {status === "running" ? <Loader2 size={15} className="animate-spin" /> : <Calculator size={15} />}
-          {label}
+          {status === "running" ? (
+            <Loader2 size={15} className="animate-spin" />
+          ) : mode === "incremental" ? (
+            <RefreshCw size={15} />
+          ) : (
+            <Calculator size={15} />
+          )}
         </button>
       </div>
 

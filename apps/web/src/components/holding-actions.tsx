@@ -1,6 +1,6 @@
 "use client";
 
-import { type PointerEvent, useEffect, useMemo, useState } from "react";
+import { type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   Area,
   CartesianGrid,
@@ -54,7 +54,11 @@ type HoldingActionData = {
 type HoldingActionsProps = {
   holding: HoldingActionData;
   portfolioCurrency: string;
+  openMenuAssetId: string | null;
+  onOpenMenuChange: (assetId: string | null) => void;
 };
+
+type MenuDirection = "down" | "up";
 
 const actionItems = [
   { id: "chart", label: "Display chart", icon: LineChart },
@@ -250,13 +254,14 @@ function TransactionHistoryScaffold({
 
         {holding.dividendHistory.length > 0 ? (
           <div className="mt-2 overflow-x-auto rounded-md border border-white/10">
-            <table className="w-full min-w-[560px] border-collapse text-left text-[9px] sm:text-[10px]">
+            <table className="w-full min-w-[620px] border-collapse text-left text-[9px] sm:text-[10px]">
               <thead className="text-slate-500">
                 <tr>
                   <th className="border-b border-white/5 px-1.5 py-1.5 font-medium">Dividend date</th>
                   <th className="border-b border-white/5 px-1.5 py-1.5 text-right font-medium">Qty held</th>
                   <th className="border-b border-white/5 px-1.5 py-1.5 text-right font-medium">Per share</th>
-                  <th className="border-b border-white/5 px-1.5 py-1.5 text-right font-medium">Collected</th>
+                  <th className="border-b border-white/5 px-1.5 py-1.5 text-right font-medium">Gross</th>
+                  <th className="border-b border-white/5 px-1.5 py-1.5 text-right font-medium">Net collected</th>
                   <th className="border-b border-white/5 px-1.5 py-1.5 text-right font-medium">
                     Value {portfolioCurrency}
                   </th>
@@ -275,6 +280,9 @@ function TransactionHistoryScaffold({
                     </td>
                     <td className="px-1.5 py-1.5 text-right font-mono tabular text-slate-100">
                       {formatCurrencyAmount(row.grossAmount, row.currency)}
+                    </td>
+                    <td className="px-1.5 py-1.5 text-right font-mono tabular text-slate-100">
+                      {formatCurrencyAmount(row.netAmount, row.currency)}
                     </td>
                     <td className="px-1.5 py-1.5 text-right font-mono tabular text-slate-50">
                       {formatCurrencyNumber(row.grossAmountPortfolio)}
@@ -501,12 +509,84 @@ function buildVisibleChartEvents(
     });
 }
 
-function paddedChartMin(value: number) {
-  return value >= 0 ? value * 0.9 : value * 1.1;
+function niceChartStep(range: number, targetTickCount = 6) {
+  if (!Number.isFinite(range) || range <= 0) {
+    return 1;
+  }
+
+  const rawStep = range / Math.max(1, targetTickCount - 1);
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  const normalizedStep = rawStep / magnitude;
+  const niceMultiplier =
+    normalizedStep <= 1 ? 1 : normalizedStep <= 2 ? 2 : normalizedStep <= 2.5 ? 2.5 : normalizedStep <= 5 ? 5 : 10;
+
+  return niceMultiplier * magnitude;
 }
 
-function paddedChartMax(value: number) {
-  return value >= 0 ? value * 1.1 : value * 0.9;
+function roundChartTick(value: number, step: number) {
+  if (step >= 1) {
+    return Math.round(value);
+  }
+
+  const decimals = Math.min(8, Math.ceil(Math.abs(Math.log10(step))) + 1);
+  return Number(value.toFixed(decimals));
+}
+
+function buildChartTicks(axisMinimum: number, axisMaximum: number, step: number) {
+  const ticks: number[] = [];
+
+  for (let value = axisMinimum; value <= axisMaximum + step * 0.001; value += step) {
+    ticks.push(roundChartTick(value, step));
+  }
+
+  return ticks;
+}
+
+function buildCompactPriceAxis(values: number[]) {
+  const validValues = values.filter((value) => Number.isFinite(value));
+
+  if (validValues.length === 0) {
+    return {
+      domain: [0, 1] as [number, number],
+      ticks: [0, 1],
+    };
+  }
+
+  const minimum = Math.min(...validValues);
+  const maximum = Math.max(...validValues);
+
+  if (minimum === maximum) {
+    const fallbackRange = Math.max(Math.abs(minimum) * 0.04, 0.01);
+    const step = niceChartStep(fallbackRange * 2, 5);
+    const axisMinimum = Math.floor((minimum - fallbackRange) / step) * step;
+    const axisMaximum = Math.ceil((maximum + fallbackRange) / step) * step;
+
+    return {
+      domain: [axisMinimum, axisMaximum] as [number, number],
+      ticks: buildChartTicks(axisMinimum, axisMaximum, step),
+    };
+  }
+
+  const dataRange = maximum - minimum;
+  const targetAxisRange = dataRange / 0.82;
+  const step = niceChartStep(targetAxisRange, 6);
+  let axisMinimum = Math.floor(minimum / step) * step;
+  let axisMaximum = Math.ceil(maximum / step) * step;
+
+  if ((maximum - minimum) / (axisMaximum - axisMinimum) < 0.8) {
+    const midpoint = (minimum + maximum) / 2;
+    const compactRange = dataRange / 0.82;
+    axisMinimum = midpoint - compactRange / 2;
+    axisMaximum = midpoint + compactRange / 2;
+  }
+
+  const firstTick = Math.ceil(axisMinimum / step) * step;
+  const lastTick = Math.floor(axisMaximum / step) * step;
+
+  return {
+    domain: [axisMinimum, axisMaximum] as [number, number],
+    ticks: buildChartTicks(firstTick, lastTick, step),
+  };
 }
 
 function AssetCandleSvg({
@@ -541,13 +621,16 @@ function AssetCandleSvg({
     showMa7 && point.ma7 !== null && point.ma7 !== undefined ? point.ma7 : null,
     showMa200 && point.ma200 !== null && point.ma200 !== undefined ? point.ma200 : null,
   ]).filter((value): value is number => value !== null);
-  const minPrice = paddedChartMin(Math.min(...candleData.map((point) => point.low), ...movingAverageValues));
-  const maxPrice = paddedChartMax(Math.max(...candleData.map((point) => point.high), ...movingAverageValues));
+  const yAxis = buildCompactPriceAxis([
+    ...candleData.flatMap((point) => [point.low, point.high]),
+    ...movingAverageValues,
+  ]);
+  const [minPrice, maxPrice] = yAxis.domain;
   const priceRange = Math.max(0.000001, maxPrice - minPrice);
   const xStep = candleData.length > 1 ? chartWidth / (candleData.length - 1) : chartWidth;
   const candleWidth = Math.max(2, Math.min(8, xStep * 0.55));
   const y = (value: number) => padding.top + ((maxPrice - value) / priceRange) * chartHeight;
-  const gridValues = [0, 0.5, 1].map((fraction) => minPrice + priceRange * fraction);
+  const gridValues = yAxis.ticks.length >= 2 ? yAxis.ticks : [minPrice, maxPrice];
   const eventMarkers = events.flatMap((event) => {
     const pointIndex = candleData.findIndex((point) => point.date >= event.chartPointDate);
 
@@ -728,6 +811,18 @@ function ChartScaffold({
     () => buildVisibleChartEvents(holding.chartEvents, chartData, range),
     [holding.chartEvents, chartData, range],
   );
+  const yAxis = useMemo(
+    () =>
+      buildCompactPriceAxis([
+        ...chartData.flatMap((point) => [
+          point.close,
+          showMa7 && point.ma7 !== null && point.ma7 !== undefined ? point.ma7 : null,
+          showMa200 && point.ma200 !== null && point.ma200 !== undefined ? point.ma200 : null,
+        ]),
+        ...visibleChartEvents.map((event) => event.chartPrice),
+      ].filter((value): value is number => value !== null)),
+    [chartData, showMa7, showMa200, visibleChartEvents],
+  );
   const currency = data?.currency ?? displayCurrency;
   const latestPoint = chartData.at(-1);
   const firstPoint = chartData[0];
@@ -889,7 +984,8 @@ function ChartScaffold({
               />
               <YAxis
                 width={96}
-                domain={[paddedChartMin, paddedChartMax]}
+                domain={yAxis.domain}
+                ticks={yAxis.ticks}
                 tickLine={false}
                 axisLine={false}
                 tick={{ fill: "#94A3B8", fontSize: 9 }}
@@ -1322,13 +1418,21 @@ function FloatingAssetChartWindow({
   );
 }
 
-export function HoldingActions({ holding, portfolioCurrency }: HoldingActionsProps) {
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
+export function HoldingActions({
+  holding,
+  portfolioCurrency,
+  openMenuAssetId,
+  onOpenMenuChange,
+}: HoldingActionsProps) {
+  const isMenuOpen = openMenuAssetId === holding.assetId;
+  const [menuDirection, setMenuDirection] = useState<MenuDirection>("down");
   const [modalAction, setModalAction] = useState<ModalHoldingAction | null>(null);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isChartOpen, setIsChartOpen] = useState(false);
   const [historyWindowZIndex, setHistoryWindowZIndex] = useState(nextFloatingWindowZIndex);
   const [chartWindowZIndex, setChartWindowZIndex] = useState(nextFloatingWindowZIndex);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
 
   function nextWindowZIndex() {
     nextFloatingWindowZIndex += 1;
@@ -1344,7 +1448,7 @@ export function HoldingActions({ holding, portfolioCurrency }: HoldingActionsPro
   }
 
   function openAction(action: HoldingAction) {
-    setIsMenuOpen(false);
+    onOpenMenuChange(null);
 
     if (action === "history") {
       setIsHistoryOpen(true);
@@ -1361,19 +1465,95 @@ export function HoldingActions({ holding, portfolioCurrency }: HoldingActionsPro
     setModalAction(action);
   }
 
+function updateMenuDirection() {
+    const trigger = triggerRef.current;
+
+    if (!trigger) {
+      return;
+    }
+
+    const rect = trigger.getBoundingClientRect();
+    const tableBody = trigger.closest("tbody");
+    const tableBodyRect = tableBody?.getBoundingClientRect();
+    const menuHeight = actionItems.length * 32 + 8;
+    const viewportPadding = 12;
+    const lowerBoundary = Math.min(window.innerHeight - viewportPadding, tableBodyRect?.bottom ?? window.innerHeight);
+    const upperBoundary = Math.max(viewportPadding, tableBodyRect?.top ?? viewportPadding);
+    const spaceBelow = lowerBoundary - rect.bottom;
+    const spaceAbove = rect.top - upperBoundary;
+
+    setMenuDirection(spaceBelow < menuHeight && spaceAbove > spaceBelow ? "up" : "down");
+  }
+
+  function toggleMenu() {
+    if (isMenuOpen) {
+      onOpenMenuChange(null);
+      return;
+    }
+
+    updateMenuDirection();
+    onOpenMenuChange(holding.assetId);
+  }
+
+  useEffect(() => {
+    if (!isMenuOpen) {
+      return;
+    }
+
+    updateMenuDirection();
+    window.addEventListener("resize", updateMenuDirection);
+    window.addEventListener("scroll", updateMenuDirection, true);
+
+    return () => {
+      window.removeEventListener("resize", updateMenuDirection);
+      window.removeEventListener("scroll", updateMenuDirection, true);
+    };
+  }, [isMenuOpen]);
+
+  useEffect(() => {
+    if (!isMenuOpen) {
+      return;
+    }
+
+    function closeOnOutsidePointer(event: MouseEvent | TouchEvent) {
+      const root = rootRef.current;
+      const target = event.target;
+
+      if (root && target instanceof Node && root.contains(target)) {
+        return;
+      }
+
+      onOpenMenuChange(null);
+    }
+
+    document.addEventListener("mousedown", closeOnOutsidePointer);
+    document.addEventListener("touchstart", closeOnOutsidePointer);
+
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutsidePointer);
+      document.removeEventListener("touchstart", closeOnOutsidePointer);
+    };
+  }, [isMenuOpen, onOpenMenuChange]);
+
   return (
-    <div className="relative flex shrink-0 justify-start">
+    <div ref={rootRef} className="relative flex shrink-0 justify-start">
       <button
+        ref={triggerRef}
         type="button"
         aria-label={`${holding.symbol} actions`}
-        onClick={() => setIsMenuOpen((value) => !value)}
+        onClick={toggleMenu}
         className="flex h-[22px] w-[22px] items-center justify-center rounded-[5px] border border-white/10 text-slate-400 hover:border-neutral/50 hover:text-slate-50"
       >
         <MoreHorizontal size={13} />
       </button>
 
       {isMenuOpen ? (
-        <div className="absolute left-0 top-7 z-[1000] w-44 rounded-lg border border-white/10 bg-panel p-1 shadow-panel">
+        <div
+          className={cn(
+            "absolute left-0 z-[1000] w-44 rounded-lg border border-white/10 bg-panel p-1 shadow-panel",
+            menuDirection === "up" ? "bottom-7" : "top-7",
+          )}
+        >
           {actionItems.map((item) => (
             <button
               key={item.id}

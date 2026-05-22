@@ -15,18 +15,24 @@ type HoldingsTableProps = {
 export function HoldingsTable({ holdings, portfolioCurrency, costBasisMethod }: HoldingsTableProps) {
   const [showHoldings, setShowHoldings] = useState(true);
   const [showCash, setShowCash] = useState(false);
+  const [openMenuAssetId, setOpenMenuAssetId] = useState<string | null>(null);
+  const [brokerFilter, setBrokerFilter] = useState("ALL");
+  const brokerOptions = useMemo(
+    () => Array.from(new Set(holdings.map((holding) => holding.broker))).sort((left, right) => left.localeCompare(right)),
+    [holdings],
+  );
   const visibleHoldings = useMemo(
     () =>
-      holdings.filter((holding) =>
-        holding.type === "CASH" ? showCash : showHoldings,
-      ),
-    [holdings, showCash, showHoldings],
+      holdings
+        .filter((holding) => (holding.type === "CASH" ? showCash : showHoldings))
+        .filter((holding) => brokerFilter === "ALL" || holding.broker === brokerFilter),
+    [brokerFilter, holdings, showCash, showHoldings],
   );
 
   return (
     <article className="rounded-lg border border-white/10 bg-panel p-3 shadow-panel">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           <h2 className="text-sm font-semibold text-slate-50">Holdings</h2>
           <div className="flex items-center gap-1 rounded-md border border-white/10 bg-background/60 p-1">
             <label className="flex h-6 cursor-pointer items-center gap-1 rounded px-2 text-[10px] font-medium text-slate-400 hover:text-slate-100">
@@ -47,6 +53,24 @@ export function HoldingsTable({ holdings, portfolioCurrency, costBasisMethod }: 
               />
               Cash
             </label>
+          </div>
+          <div className="flex items-center gap-1 rounded-md border border-white/10 bg-background/60 p-1">
+            <select
+              value={brokerFilter}
+              onChange={(event) => setBrokerFilter(event.target.value)}
+              className="h-6 w-40 rounded bg-background px-1.5 text-[10px] font-medium leading-none text-slate-300 outline-none hover:text-slate-100"
+              aria-label="Filter holdings by exchange"
+              title="Filter holdings by exchange"
+            >
+              <option className="bg-background text-slate-100" value="ALL">
+                All
+              </option>
+              {brokerOptions.map((broker) => (
+                <option className="bg-background text-slate-100" key={broker} value={broker}>
+                  {broker}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
         <span className="text-xs text-slate-500">
@@ -76,7 +100,12 @@ export function HoldingsTable({ holdings, portfolioCurrency, costBasisMethod }: 
                     {holding.type === "CASH" ? (
                       <span className="h-6 w-6 shrink-0 rounded-md border border-white/10 bg-surface" />
                     ) : (
-                      <HoldingActions holding={holding} portfolioCurrency={portfolioCurrency} />
+                      <HoldingActions
+                        holding={holding}
+                        portfolioCurrency={portfolioCurrency}
+                        openMenuAssetId={openMenuAssetId}
+                        onOpenMenuChange={setOpenMenuAssetId}
+                      />
                     )}
                     <div className="flex min-w-0 items-baseline gap-2">
                       <span className="shrink-0 font-semibold">{holding.symbol}</span>

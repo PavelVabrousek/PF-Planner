@@ -1,20 +1,19 @@
-import {
-  AlertTriangle,
-  ArrowDownRight,
-  ArrowUpRight,
-  Bell,
-  DatabaseZap,
-  LogOut,
-  Search,
-} from "lucide-react";
+import { Bell, LogOut, Search, UserCircle2 } from "lucide-react";
 import { redirect } from "next/navigation";
 import { AllocationChart, PortfolioChart } from "@/components/portfolio-chart";
+import { DividendsWindowButton } from "@/components/dividends-window-button";
 import { HoldingsTable } from "@/components/holdings-table";
+import { BrandMark } from "@/components/brand-mark";
 import { RecalculatePortfolioButton } from "@/components/recalculate-portfolio-button";
 import { TransactionButton } from "@/components/transaction-button";
 import { getCurrentPfpUser } from "@/lib/auth/current-user";
 import { navItems } from "@/lib/demo-data";
-import { defaultNumberFormatPreferences, formatCurrencyAmount, formatPercent } from "@/lib/format";
+import {
+  defaultNumberFormatPreferences,
+  formatCurrencyAmount,
+  formatCurrencyNumber,
+  formatPercent,
+} from "@/lib/format";
 import { getDashboardData } from "@/lib/portfolio-data";
 import { cn } from "@/lib/utils";
 
@@ -58,15 +57,13 @@ export default async function DashboardPage() {
   }
 
   const dashboard = await getDashboardData(auth.user);
-  const { holdings, metrics, portfolioSeries, transactions, watchlist, workQueue } = dashboard;
+  const { holdings, metrics, portfolioSeries, transactions } = dashboard;
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-3 pb-24 pt-3 sm:px-5 lg:px-6 lg:pb-8">
       <header className="sticky top-0 z-20 -mx-3 border-b border-white/5 bg-background/90 px-3 py-3 backdrop-blur sm:-mx-5 sm:px-5 lg:-mx-6 lg:px-6">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-neutral/15 text-blue-300 ring-1 ring-neutral/30">
-            <DatabaseZap size={18} />
-          </div>
+        <div className="flex items-center gap-2">
+          <BrandMark className="h-8 w-8" />
           <div className="min-w-0 flex-1">
             <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">PF Planner</p>
             <h1 className="truncate text-base font-semibold text-slate-50 sm:text-lg">
@@ -76,6 +73,7 @@ export default async function DashboardPage() {
           <button
             type="button"
             aria-label="Search"
+            title="Search"
             className="hidden h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-panel text-slate-300 hover:border-neutral/50 hover:text-slate-50 sm:flex"
           >
             <Search size={17} />
@@ -83,17 +81,22 @@ export default async function DashboardPage() {
           <button
             type="button"
             aria-label="Notifications"
+            title="Notifications"
             className="flex h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-panel text-slate-300 hover:border-neutral/50 hover:text-slate-50"
           >
             <Bell size={17} />
           </button>
-          <div className="hidden min-w-0 text-right md:block">
-            <p className="max-w-40 truncate text-[11px] text-slate-500">{auth.user.email}</p>
-            <p className="text-[10px] text-slate-600">{auth.user.isLocalBypass ? "Local bypass" : "Google login"}</p>
+          <div
+            className="hidden h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-panel text-slate-300 md:flex"
+            title={`${auth.user.email} · ${auth.user.isLocalBypass ? "Local bypass" : "Google login"}`}
+            aria-label={`${auth.user.email} user session`}
+          >
+            <UserCircle2 size={17} />
           </div>
           <a
             href="/auth/logout"
             aria-label="Sign out"
+            title="Sign out"
             className="hidden h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-panel text-slate-300 hover:border-neutral/50 hover:text-slate-50 md:flex"
           >
             <LogOut size={16} />
@@ -104,7 +107,7 @@ export default async function DashboardPage() {
         </div>
       </header>
 
-      <section className="grid gap-3 py-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-3 py-3 sm:grid-cols-3">
         {metrics.map((metric, index) => (
           <article
             key={metric.label}
@@ -117,9 +120,13 @@ export default async function DashboardPage() {
                   {metric.value}
                 </p>
               </div>
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-surface text-slate-300">
-                <metric.icon size={16} />
-              </div>
+              {metric.label === "Dividends YTD" ? (
+                <DividendsWindowButton holdings={holdings} portfolioCurrency={dashboard.baseCurrency} />
+              ) : (
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-surface text-slate-300">
+                  <metric.icon size={16} />
+                </div>
+              )}
             </div>
             {index === 0 ? (
               <div className="mt-2 flex flex-wrap gap-1.5">
@@ -172,76 +179,55 @@ export default async function DashboardPage() {
           </article>
 
           <article className="rounded-lg border border-white/10 bg-panel p-3 shadow-panel">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-50">Watchlist</h2>
-              <AlertTriangle size={15} className="text-warning" />
-            </div>
-            <div className="space-y-2">
-              {watchlist.map((item) => (
-                <div
-                  key={item.symbol}
-                  className="flex items-center justify-between rounded-md bg-surface/70 px-3 py-2"
-                >
-                  <div>
-                    <p className="text-xs font-semibold text-slate-100">{item.symbol}</p>
-                    <p className="font-mono text-xs tabular text-slate-400">{item.price}</p>
-                  </div>
-                  <span
-                    className={cn(
-                      "flex items-center gap-1 font-mono text-xs tabular",
-                      item.change >= 0 ? "text-positive" : "text-negative",
-                    )}
-                  >
-                    {item.change >= 0 ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}
-                    {formatPercent(item.change, defaultNumberFormatPreferences, { sign: "never" })}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </article>
-
-          <article className="rounded-lg border border-white/10 bg-panel p-3 shadow-panel">
             <h2 className="mb-3 text-sm font-semibold text-slate-50">Recent transactions</h2>
-            <div className="space-y-2">
-              {transactions.map((transaction) => (
-                <div
-                  key={`${transaction.type}-${transaction.symbol}-${transaction.date}`}
-                  className="grid grid-cols-[64px_1fr_auto] items-center gap-2 text-xs"
-                >
-                  <span className="rounded bg-surface px-2 py-1 text-center font-mono text-[10px] text-slate-300">
-                    {transaction.type}
-                  </span>
-                  <div className="min-w-0">
-                    <p className="truncate font-medium text-slate-200">{transaction.symbol}</p>
-                    <p className="font-mono text-[11px] tabular text-slate-500">
-                      {transaction.date}
-                    </p>
-                  </div>
-                  <span
-                    className={cn(
-                      "font-mono tabular",
-                      transaction.amount >= 0 ? "text-positive" : "text-slate-200",
-                    )}
+            <div className="overflow-x-auto rounded-md border border-white/5">
+              <div className="min-w-[570px] space-y-1 p-1">
+                <div className="grid grid-cols-[38px_48px_86px_72px_52px_56px_48px_86px] items-center gap-1 px-2 py-1 text-[9px] font-medium text-slate-500">
+                  <span>Type</span>
+                  <span>Asset</span>
+                  <span>Broker</span>
+                  <span>Date</span>
+                  <span className="text-right">Qty</span>
+                  <span className="text-right">Price</span>
+                  <span className="text-right">Fee</span>
+                  <span className="text-right">Amount</span>
+                </div>
+                {transactions.map((transaction) => (
+                  <div
+                    key={transaction.id}
+                    className="grid grid-cols-[38px_48px_86px_72px_52px_56px_48px_86px] items-center gap-1 rounded bg-surface/70 px-2 py-1 text-[10px]"
                   >
-                    {formatCurrencyAmount(transaction.amount, transaction.currency)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </article>
-
-          <article className="rounded-lg border border-white/10 bg-panel p-3 shadow-panel">
-            <h2 className="mb-3 text-sm font-semibold text-slate-50">MVP work queue</h2>
-            <div className="space-y-2">
-              {workQueue.map((item) => (
-                <div key={item.label} className="flex gap-3 rounded-md bg-surface/70 p-2.5">
-                  <item.icon size={16} className="mt-0.5 shrink-0 text-blue-300" />
-                  <div className="min-w-0">
-                    <p className="text-xs font-medium text-slate-200">{item.label}</p>
-                    <p className="truncate text-[11px] text-slate-500">{item.detail}</p>
+                    <span className="truncate font-mono text-slate-400" title={transaction.type}>
+                      {transaction.type}
+                    </span>
+                    <span className="truncate font-semibold text-slate-100" title={transaction.symbol}>
+                      {transaction.symbol}
+                    </span>
+                    <span className="truncate text-slate-500" title={transaction.broker}>
+                      {transaction.broker}
+                    </span>
+                    <span className="font-mono tabular text-slate-500">{transaction.date}</span>
+                    <span className="text-right font-mono tabular text-slate-400">
+                      {transaction.quantity ? formatCurrencyNumber(transaction.quantity) : "-"}
+                    </span>
+                    <span className="text-right font-mono tabular text-slate-300">
+                      {transaction.price ? formatCurrencyNumber(transaction.price) : "-"}
+                    </span>
+                    <span className="text-right font-mono tabular text-slate-400">
+                      {transaction.fee ? formatCurrencyNumber(transaction.fee) : "-"}
+                    </span>
+                    <span
+                      className={cn(
+                        "text-right font-mono tabular",
+                        transaction.amount >= 0 ? "text-positive" : "text-slate-200",
+                      )}
+                      title={`Qty ${transaction.quantity ?? "-"} · Volume ${formatCurrencyAmount(transaction.volume, transaction.currency)}`}
+                    >
+                      {formatCurrencyAmount(transaction.amount, transaction.currency)}
+                    </span>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </article>
         </aside>

@@ -1,6 +1,6 @@
-import { DatabaseZap } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { BrandMark } from "@/components/brand-mark";
 import { getPfpAuthMode } from "@/lib/auth/config";
 import { getCurrentPfpUser } from "@/lib/auth/current-user";
 
@@ -41,9 +41,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
     <main className="grid min-h-screen place-items-center bg-background px-4 py-8 text-slate-100">
       <section className="w-full max-w-sm rounded-lg border border-white/10 bg-panel p-5 shadow-panel">
         <div className="mb-5 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-md bg-neutral/15 text-blue-300 ring-1 ring-neutral/30">
-            <DatabaseZap size={20} />
-          </div>
+          <BrandMark className="h-10 w-10" />
           <div>
             <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">PF Planner</p>
             <h1 className="text-lg font-semibold text-slate-50">Sign in</h1>

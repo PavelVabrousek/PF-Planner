@@ -4,8 +4,6 @@ import {
   metrics as demoMetrics,
   portfolioSeries as demoPortfolioSeries,
   transactions as demoTransactions,
-  watchlist as demoWatchlist,
-  workQueue as demoWorkQueue,
   type Holding,
 } from "@/lib/demo-data";
 import { canUseDemoFallback } from "@/lib/auth/config";
@@ -146,6 +144,7 @@ export type DividendHistoryRow = {
   quantity: number | null;
   amountPerShare: number | null;
   grossAmount: number;
+  netAmount: number;
   grossAmountPortfolio: number | null;
   returnImpactPercent: number | null;
 };
@@ -157,6 +156,20 @@ export type AssetChartEvent = {
   quantity: number | null;
   price: number | null;
   amount: number | null;
+  currency: string;
+};
+
+type DashboardTransaction = {
+  id: string;
+  type: string;
+  symbol: string;
+  broker: string;
+  date: string;
+  quantity: number | null;
+  price: number | null;
+  fee: number;
+  volume: number;
+  amount: number;
   currency: string;
 };
 
@@ -180,9 +193,7 @@ export type DashboardData = {
   portfolioSeries: PortfolioSeriesPoint[];
   allocation: typeof demoAllocation;
   holdings: DashboardHolding[];
-  transactions: typeof demoTransactions;
-  watchlist: typeof demoWatchlist;
-  workQueue: typeof demoWorkQueue;
+  transactions: DashboardTransaction[];
 };
 
 function toNumber(value: string | number | null | undefined) {
@@ -387,6 +398,7 @@ function demoData(sourceMessage: string): DashboardData {
           quantity: 1,
           amountPerShare: 2.4,
           grossAmount: 2.4,
+          netAmount: 2.4,
           grossAmountPortfolio: 60,
           returnImpactPercent: 0.01,
         },
@@ -403,9 +415,19 @@ function demoData(sourceMessage: string): DashboardData {
         },
       ],
     })),
-    transactions: demoTransactions,
-    watchlist: demoWatchlist,
-    workQueue: demoWorkQueue,
+    transactions: demoTransactions.map((transaction, index) => ({
+      id: `demo-transaction-${index}`,
+      type: transaction.type,
+      symbol: transaction.symbol,
+      broker: "Demo",
+      date: transaction.date,
+      quantity: null,
+      price: null,
+      fee: 0,
+      volume: Math.abs(transaction.amount),
+      amount: transaction.amount,
+      currency: transaction.currency,
+    })),
   };
 }
 
@@ -568,7 +590,7 @@ function buildPortfolioSeries(
     .map((price) => price.price_date);
   const latestPriceDate = pricedDates.sort().at(-1);
   const endDate = latestPriceDate ? new Date(`${latestPriceDate}T00:00:00Z`) : new Date();
-  const earliestTransactionDate = transactions
+  const earliestTransactionDate = [...transactions]
     .map((transaction) => transaction.trade_date)
     .sort()[0];
   const tenYearsAgo = subtractYears(endDate, 10);
@@ -576,7 +598,7 @@ function buildPortfolioSeries(
     earliestTransactionDate && earliestTransactionDate > dateKey(tenYearsAgo)
       ? new Date(`${earliestTransactionDate}T00:00:00Z`)
       : tenYearsAgo;
-  const sortedTransactions = transactions
+  const sortedTransactions = [...transactions]
     .sort((left, right) => left.trade_date.localeCompare(right.trade_date));
   const ascendingPrices = new Map(
     Array.from(priceHistory.entries()).map(([assetId, prices]) => [
@@ -663,7 +685,15 @@ function buildPortfolioSeries(
 }
 
 function buildTransactions(transactions: DbTransaction[]) {
-  return transactions.slice(0, 4).map((transaction) => {
+  return [...transactions].sort((left, right) => {
+    const dateOrder = right.trade_date.localeCompare(left.trade_date);
+
+    if (dateOrder !== 0) {
+      return dateOrder;
+    }
+
+    return right.id.localeCompare(left.id);
+  }).slice(0, 10).map((transaction) => {
     const cash = transactionCashValue(transaction) + toNumber(transaction.fee) + toNumber(transaction.tax);
     const amount =
       transaction.type === "BUY" ||
@@ -674,9 +704,15 @@ function buildTransactions(transactions: DbTransaction[]) {
         : cash;
 
     return {
+      id: transaction.id,
       type: transaction.type,
       symbol: transaction.assets?.symbol ?? transaction.type,
+      broker: transaction.assets?.broker ?? "Cash",
       date: transaction.trade_date,
+      quantity: toNumber(transaction.quantity) || null,
+      price: toNumber(transaction.price) || null,
+      fee: toNumber(transaction.fee),
+      volume: transactionCashValue(transaction),
       amount,
       currency: transaction.currency,
     };
@@ -787,7 +823,8 @@ function buildDividendHistory({
         portfolioCurrency,
         quantity: toNumber(transaction.quantity) || null,
         amountPerShare: null,
-        grossAmount: netAmount,
+        grossAmount,
+        netAmount,
         grossAmountPortfolio,
         returnImpactPercent:
           costPortfolio > 0 && grossAmountPortfolio > 0 ? (grossAmountPortfolio / costPortfolio) * 100 : null,
@@ -835,6 +872,7 @@ function buildDividendHistory({
           quantity,
           amountPerShare,
           grossAmount,
+          netAmount: grossAmount,
           grossAmountPortfolio,
           returnImpactPercent:
             costPortfolio > 0 && grossAmountPortfolio !== null ? (grossAmountPortfolio / costPortfolio) * 100 : null,
@@ -1123,14 +1161,6 @@ function buildAllocation(holdings: Holding[]) {
     name: `${name[0]}${name.slice(1).toLowerCase()}`,
     value: Number(value.toFixed(1)),
     fill: colors[name as keyof typeof colors] ?? "#94A3B8",
-  }));
-}
-
-function buildWatchlist(holdings: Holding[], portfolioCurrency: string) {
-  return holdings.slice(0, 3).map((holding) => ({
-    symbol: holding.symbol,
-    price: formatCurrencyAmount(holding.valueCzk, portfolioCurrency),
-    change: holding.dayChange,
   }));
 }
 
@@ -1435,34 +1465,12 @@ function buildDashboardFromRows({
         value: formatCurrencyAmount(dividends, portfolio.base_currency),
         delta: dividendDelta,
       },
-      {
-        ...demoMetrics[3],
-        value: formatNumber(rows.length),
-        delta: rows.length > 0 ? "transactions loaded" : "empty portfolio",
-        tone: rows.length > 0 ? "neutral" : "warning",
-      },
     ],
     netWorthPerformance: buildNetWorthPerformance(holdings),
     portfolioSeries: buildPortfolioSeries(rows, priceHistory, fxHistory, portfolio.base_currency),
     allocation: buildAllocation(holdings),
     holdings,
     transactions: buildTransactions(rows),
-    watchlist: buildWatchlist(holdings, portfolio.base_currency),
-    workQueue: [
-      {
-        ...demoWorkQueue[0],
-        detail: `${formatNumber(rows.length)} immutable transactions loaded`,
-      },
-      {
-        ...demoWorkQueue[1],
-        detail:
-          priceHistory.size > 0 ? `${formatNumber(priceHistory.size)} assets have daily prices` : "No daily prices found",
-      },
-      {
-        ...demoWorkQueue[2],
-        detail: fxHistory.size > 0 ? `${formatNumber(fxHistory.size)} FX pairs loaded` : "No stored FX pairs found",
-      },
-    ],
   };
 }
 

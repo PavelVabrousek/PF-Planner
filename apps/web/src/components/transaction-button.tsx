@@ -336,11 +336,12 @@ export function TransactionButton({ portfolioCurrency }: { portfolioCurrency: st
     <>
       <button
         type="button"
+        aria-label="New transaction"
+        title="New transaction"
         onClick={() => setIsOpen(true)}
-        className="flex h-9 items-center gap-2 rounded-md bg-neutral px-3 text-xs font-medium text-white hover:bg-blue-500"
+        className="flex h-9 w-9 items-center justify-center rounded-md bg-neutral text-white hover:bg-blue-500"
       >
         <Plus size={16} />
-        <span className="hidden sm:inline">Transaction</span>
       </button>
 
       {isOpen ? (

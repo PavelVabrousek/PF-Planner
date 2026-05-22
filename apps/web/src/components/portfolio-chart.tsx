@@ -80,14 +80,6 @@ function chartTick(value: string, range: PortfolioRange) {
   return date.toLocaleDateString("en-US", { month: "short", year: "2-digit", timeZone: "UTC" });
 }
 
-function paddedDomainMin(value: number) {
-  return value >= 0 ? value * 0.9 : value * 1.1;
-}
-
-function paddedDomainMax(value: number) {
-  return value >= 0 ? value * 1.1 : value * 0.9;
-}
-
 function niceMajorStep(range: number, targetTickCount = 6) {
   if (!Number.isFinite(range) || range <= 0) {
     return 100_000;
@@ -102,6 +94,16 @@ function niceMajorStep(range: number, targetTickCount = 6) {
   return niceMultiplier * magnitude;
 }
 
+function buildTicks(axisMinimum: number, axisMaximum: number, step: number) {
+  const ticks: number[] = [];
+
+  for (let value = axisMinimum; value <= axisMaximum + step * 0.001; value += step) {
+    ticks.push(Math.round(value));
+  }
+
+  return ticks;
+}
+
 function buildMajorCurrencyAxis(values: number[]) {
   const validValues = values.filter((value) => Number.isFinite(value));
 
@@ -114,20 +116,35 @@ function buildMajorCurrencyAxis(values: number[]) {
 
   const minimum = Math.min(...validValues);
   const maximum = Math.max(...validValues);
-  const paddedMinimum = paddedDomainMin(minimum);
-  const paddedMaximum = paddedDomainMax(maximum);
-  const step = niceMajorStep(paddedMaximum - paddedMinimum);
-  const axisMinimum = Math.floor(paddedMinimum / step) * step;
-  const axisMaximum = Math.ceil(paddedMaximum / step) * step;
-  const ticks: number[] = [];
 
-  for (let value = axisMinimum; value <= axisMaximum + step * 0.001; value += step) {
-    ticks.push(Math.round(value));
+  if (minimum === maximum) {
+    const fallbackRange = Math.max(Math.abs(minimum) * 0.04, 1);
+    const step = niceMajorStep(fallbackRange * 2, 5);
+    const axisMinimum = Math.floor((minimum - fallbackRange) / step) * step;
+    const axisMaximum = Math.ceil((maximum + fallbackRange) / step) * step;
+
+    return {
+      domain: [axisMinimum, axisMaximum] as [number, number],
+      ticks: buildTicks(axisMinimum, axisMaximum, step),
+    };
+  }
+
+  const dataRange = maximum - minimum;
+  const targetAxisRange = dataRange / 0.82;
+  const step = niceMajorStep(targetAxisRange, 6);
+  let axisMinimum = Math.floor(minimum / step) * step;
+  let axisMaximum = Math.ceil(maximum / step) * step;
+
+  if ((maximum - minimum) / (axisMaximum - axisMinimum) < 0.8) {
+    const midpoint = (minimum + maximum) / 2;
+    const compactRange = dataRange / 0.82;
+    axisMinimum = midpoint - compactRange / 2;
+    axisMaximum = midpoint + compactRange / 2;
   }
 
   return {
     domain: [axisMinimum, axisMaximum] as [number, number],
-    ticks,
+    ticks: buildTicks(Math.ceil(axisMinimum / step) * step, Math.floor(axisMaximum / step) * step, step),
   };
 }
 

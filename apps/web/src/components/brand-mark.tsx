@@ -1,0 +1,58 @@
+import { cn } from "@/lib/utils";
+
+type BrandMarkProps = {
+  className?: string;
+};
+
+export function BrandMark({ className }: BrandMarkProps) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={cn("shrink-0", className)}
+      viewBox="0 0 64 64"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <rect width="64" height="64" rx="12" fill="#12233A" />
+      <rect x="1" y="1" width="62" height="62" rx="11" stroke="#3B82F6" strokeOpacity="0.42" />
+      <path
+        d="M18 40.5L32 47L46 40.5L32 34L18 40.5Z"
+        fill="#0B1220"
+        stroke="#7DD3FC"
+        strokeWidth="2.2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M18 30.5L32 37L46 30.5L32 24L18 30.5Z"
+        fill="#132D4B"
+        stroke="#93C5FD"
+        strokeWidth="2.2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M18 20.5L32 27L46 20.5L32 14L18 20.5Z"
+        fill="#1D4ED8"
+        stroke="#BFDBFE"
+        strokeWidth="2.2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M20.5 44.5C25.5 40 29.4 37.2 34.5 34.8C39.3 32.5 41.8 28.7 44.5 22.5"
+        stroke="#22C55E"
+        strokeWidth="3.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M38.5 23H45V29.5"
+        stroke="#22C55E"
+        strokeWidth="3.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="20.5" cy="44.5" r="2.2" fill="#86EFAC" />
+      <circle cx="34.5" cy="34.8" r="2.2" fill="#86EFAC" />
+      <circle cx="44.5" cy="22.5" r="2.2" fill="#86EFAC" />
+    </svg>
+  );
+}
