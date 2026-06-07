@@ -26,13 +26,30 @@ type CashAccountInput = {
   name?: unknown;
 };
 
+type AssetCandidateInput = {
+  symbol?: unknown;
+  name?: unknown;
+  broker?: unknown;
+  currency?: unknown;
+  assetType?: unknown;
+  providerSymbol?: unknown;
+  isin?: unknown;
+};
+
 type CreateTransactionPayload = {
   type?: unknown;
   tradeDate?: unknown;
   assetId?: unknown;
+  assetCandidate?: AssetCandidateInput;
   quantity?: unknown;
   price?: unknown;
   grossAmount?: unknown;
+  cashAccountGrossAmount?: unknown;
+  tradeGrossAmount?: unknown;
+  grossAmountIncludesCosts?: unknown;
+  tradeCurrency?: unknown;
+  fxRate?: unknown;
+  fxFeePercent?: unknown;
   currency?: unknown;
   fee?: unknown;
   tax?: unknown;
@@ -91,6 +108,10 @@ function nonNegativeNumber(value: unknown, field: string) {
   return parsed;
 }
 
+function booleanValue(value: unknown) {
+  return value === true || value === "true";
+}
+
 function currencyCode(value: unknown, field = "Currency") {
   const currency = text(value).toUpperCase();
 
@@ -99,6 +120,16 @@ function currencyCode(value: unknown, field = "Currency") {
   }
 
   return currency;
+}
+
+function assetType(value: unknown) {
+  const type = text(value).toUpperCase();
+
+  if (type === "STOCK" || type === "ETF" || type === "CRYPTO" || type === "CASH") {
+    return type;
+  }
+
+  return "STOCK";
 }
 
 function tradeDate(value: unknown) {
@@ -156,6 +187,45 @@ async function getAsset(client: PoolClient, assetId: string) {
     limit 1
     `,
     [assetId],
+  );
+
+  return result.rows[0] ?? null;
+}
+
+async function getOrCreateAsset(client: PoolClient, assetId: string, candidate: AssetCandidateInput | undefined) {
+  if (assetId) {
+    return getAsset(client, assetId);
+  }
+
+  const symbol = text(candidate?.symbol).toUpperCase();
+  const broker = text(candidate?.broker).toUpperCase();
+  const currency = currencyCode(candidate?.currency, "Asset currency");
+  const name = optionalText(candidate?.name);
+  const providerSymbol = optionalText(candidate?.providerSymbol) ?? symbol;
+  const isin = optionalText(candidate?.isin);
+  const type = assetType(candidate?.assetType);
+
+  if (!symbol || !broker) {
+    throw new Error("Asset is required.");
+  }
+
+  const result = await client.query<AssetRow>(
+    `
+    insert into public.assets (symbol, broker, name, currency, asset_type, data_provider, provider_symbol, isin)
+    values ($1::text, $2::text, $3::text, $4::char(3), $5::text, 'yfinance', $6::text, $7::text)
+    on conflict (broker, symbol) do update
+    set
+      name = coalesce(public.assets.name, excluded.name),
+      currency = excluded.currency,
+      asset_type = excluded.asset_type,
+      data_provider = coalesce(public.assets.data_provider, excluded.data_provider),
+      provider_symbol = coalesce(public.assets.provider_symbol, excluded.provider_symbol),
+      isin = coalesce(public.assets.isin, excluded.isin),
+      is_active = true,
+      updated_at = now()
+    returning id, symbol, currency::text as currency
+    `,
+    [symbol, broker, name, currency, type, providerSymbol, isin],
   );
 
   return result.rows[0] ?? null;
@@ -284,12 +354,7 @@ export async function POST(request: Request) {
 
     if (type === "BUY" || type === "SELL") {
       const assetId = text(payload.assetId);
-
-      if (!assetId) {
-        throw new Error("Asset is required.");
-      }
-
-      const asset = await getAsset(client, assetId);
+      const asset = await getOrCreateAsset(client, assetId, payload.assetCandidate);
 
       if (!asset) {
         throw new Error("Selected asset was not found.");
@@ -297,11 +362,25 @@ export async function POST(request: Request) {
 
       const quantity = positiveNumber(payload.quantity, "Quantity");
       const price = positiveNumber(payload.price, "Price");
-      const grossAmount = numberValue(payload.grossAmount) ?? quantity * price;
-      const currency = currencyCode(payload.currency || asset.currency);
+      const tradeCurrency = currencyCode(payload.currency || payload.tradeCurrency || asset.currency);
+      const feeAndTax = fee + tax;
+      const submittedTradeGrossAmount = numberValue(payload.tradeGrossAmount ?? payload.grossAmount) ?? quantity * price;
+      const tradeGrossAmount = booleanValue(payload.grossAmountIncludesCosts)
+        ? Math.max(0, submittedTradeGrossAmount - feeAndTax)
+        : submittedTradeGrossAmount;
       const cashAccount = payload.cashAccount
         ? await getOrCreateCashAccount(client, portfolio.id, payload.cashAccount)
         : null;
+      const submittedCashAccountGrossAmount = numberValue(payload.cashAccountGrossAmount);
+      const grossAmount =
+        submittedCashAccountGrossAmount !== null
+          ? booleanValue(payload.grossAmountIncludesCosts)
+            ? Math.max(0, submittedCashAccountGrossAmount - feeAndTax)
+            : positiveNumber(payload.cashAccountGrossAmount, "Cash account value")
+          : tradeGrossAmount;
+      const currency = cashAccount?.currency ?? tradeCurrency;
+      const fxRate = numberValue(payload.fxRate);
+      const fxFeePercent = nonNegativeNumber(payload.fxFeePercent, "FX fee");
 
       if (type === "SELL") {
         const heldQuantity = await getHoldingQuantity(client, portfolio.id, asset.id);
@@ -360,7 +439,18 @@ export async function POST(request: Request) {
           tax,
           currency,
           notes,
-          JSON.stringify({ created_by: "pfp_transaction_modal" }),
+          JSON.stringify({
+            created_by: "pfp_transaction_modal",
+            trade_currency: tradeCurrency,
+            trade_gross_amount: submittedTradeGrossAmount,
+            stored_trade_gross_amount: tradeGrossAmount,
+            cash_account_currency: currency,
+            cash_account_gross_amount: submittedCashAccountGrossAmount ?? grossAmount,
+            stored_cash_account_gross_amount: grossAmount,
+            gross_amount_includes_costs: booleanValue(payload.grossAmountIncludesCosts),
+            fx_rate: fxRate,
+            fx_fee_percent: fxFeePercent,
+          }),
         ],
       );
 

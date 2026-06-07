@@ -1,17 +1,14 @@
 import { Bell, LogOut, Search, UserCircle2 } from "lucide-react";
 import { redirect } from "next/navigation";
-import { AllocationChart, PortfolioChart } from "@/components/portfolio-chart";
 import { DividendsWindowButton } from "@/components/dividends-window-button";
-import { HoldingsTable } from "@/components/holdings-table";
-import { BrandMark } from "@/components/brand-mark";
+import { DashboardWorkspace } from "@/components/dashboard-workspace";
+import { ModeSwitcher } from "@/components/mode-switcher";
 import { RecalculatePortfolioButton } from "@/components/recalculate-portfolio-button";
 import { TransactionButton } from "@/components/transaction-button";
 import { getCurrentPfpUser } from "@/lib/auth/current-user";
 import { navItems } from "@/lib/demo-data";
 import {
   defaultNumberFormatPreferences,
-  formatCurrencyAmount,
-  formatCurrencyNumber,
   formatPercent,
 } from "@/lib/format";
 import { getDashboardData } from "@/lib/portfolio-data";
@@ -57,19 +54,13 @@ export default async function DashboardPage() {
   }
 
   const dashboard = await getDashboardData(auth.user);
-  const { holdings, metrics, portfolioSeries, transactions } = dashboard;
+  const { holdings, metrics } = dashboard;
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-3 pb-24 pt-3 sm:px-5 lg:px-6 lg:pb-8">
       <header className="sticky top-0 z-20 -mx-3 border-b border-white/5 bg-background/90 px-3 py-3 backdrop-blur sm:-mx-5 sm:px-5 lg:-mx-6 lg:px-6">
         <div className="flex items-center gap-2">
-          <BrandMark className="h-8 w-8" />
-          <div className="min-w-0 flex-1">
-            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">PF Planner</p>
-            <h1 className="truncate text-base font-semibold text-slate-50 sm:text-lg">
-              Portfolio Command Center
-            </h1>
-          </div>
+          <ModeSwitcher />
           <button
             type="button"
             aria-label="Search"
@@ -149,89 +140,16 @@ export default async function DashboardPage() {
         ))}
       </section>
 
-      <section className="grid flex-1 gap-3 lg:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.75fr)]">
-        <div className="space-y-3">
-          <article className="rounded-lg border border-white/10 bg-panel p-3 shadow-panel">
-            <PortfolioChart
-              data={portfolioSeries}
-              currency={dashboard.baseCurrency}
-              eyebrow={dashboard.source === "supabase" ? "Live portfolio" : "Demo portfolio"}
-              title={dashboard.portfolioName}
-            />
-          </article>
-
-          <HoldingsTable
-            holdings={holdings}
-            portfolioCurrency={dashboard.baseCurrency}
-            costBasisMethod={dashboard.costBasisMethod}
-          />
-        </div>
-
-        <aside className="space-y-3">
-          <article className="rounded-lg border border-white/10 bg-panel p-3 shadow-panel">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-50">Allocation</h2>
-              <span className="rounded-full bg-positive/10 px-2 py-0.5 text-[10px] font-medium text-positive">
-                Balanced
-              </span>
-            </div>
-            <AllocationChart holdings={holdings} portfolioCurrency={dashboard.baseCurrency} />
-          </article>
-
-          <article className="rounded-lg border border-white/10 bg-panel p-3 shadow-panel">
-            <h2 className="mb-3 text-sm font-semibold text-slate-50">Recent transactions</h2>
-            <div className="overflow-x-auto rounded-md border border-white/5">
-              <div className="min-w-[570px] space-y-1 p-1">
-                <div className="grid grid-cols-[38px_48px_86px_72px_52px_56px_48px_86px] items-center gap-1 px-2 py-1 text-[9px] font-medium text-slate-500">
-                  <span>Type</span>
-                  <span>Asset</span>
-                  <span>Broker</span>
-                  <span>Date</span>
-                  <span className="text-right">Qty</span>
-                  <span className="text-right">Price</span>
-                  <span className="text-right">Fee</span>
-                  <span className="text-right">Amount</span>
-                </div>
-                {transactions.map((transaction) => (
-                  <div
-                    key={transaction.id}
-                    className="grid grid-cols-[38px_48px_86px_72px_52px_56px_48px_86px] items-center gap-1 rounded bg-surface/70 px-2 py-1 text-[10px]"
-                  >
-                    <span className="truncate font-mono text-slate-400" title={transaction.type}>
-                      {transaction.type}
-                    </span>
-                    <span className="truncate font-semibold text-slate-100" title={transaction.symbol}>
-                      {transaction.symbol}
-                    </span>
-                    <span className="truncate text-slate-500" title={transaction.broker}>
-                      {transaction.broker}
-                    </span>
-                    <span className="font-mono tabular text-slate-500">{transaction.date}</span>
-                    <span className="text-right font-mono tabular text-slate-400">
-                      {transaction.quantity ? formatCurrencyNumber(transaction.quantity) : "-"}
-                    </span>
-                    <span className="text-right font-mono tabular text-slate-300">
-                      {transaction.price ? formatCurrencyNumber(transaction.price) : "-"}
-                    </span>
-                    <span className="text-right font-mono tabular text-slate-400">
-                      {transaction.fee ? formatCurrencyNumber(transaction.fee) : "-"}
-                    </span>
-                    <span
-                      className={cn(
-                        "text-right font-mono tabular",
-                        transaction.amount >= 0 ? "text-positive" : "text-slate-200",
-                      )}
-                      title={`Qty ${transaction.quantity ?? "-"} · Volume ${formatCurrencyAmount(transaction.volume, transaction.currency)}`}
-                    >
-                      {formatCurrencyAmount(transaction.amount, transaction.currency)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </article>
-        </aside>
-      </section>
+      <DashboardWorkspace
+        source={dashboard.source}
+        portfolioName={dashboard.portfolioName}
+        baseCurrency={dashboard.baseCurrency}
+        costBasisMethod={dashboard.costBasisMethod}
+        portfolioSeries={dashboard.portfolioSeries}
+        filteredPortfolioSeries={dashboard.filteredPortfolioSeries}
+        holdings={dashboard.holdings}
+        transactions={dashboard.transactions}
+      />
 
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-white/10 bg-panel/95 px-2 py-2 backdrop-blur lg:hidden">
         <div className="mx-auto grid max-w-md grid-cols-6 gap-1">

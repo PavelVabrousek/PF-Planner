@@ -10,17 +10,28 @@ type HoldingsTableProps = {
   holdings: DashboardData["holdings"];
   portfolioCurrency: string;
   costBasisMethod: string;
+  brokerFilter: string;
+  brokerOptions: string[];
+  showHoldings: boolean;
+  showCash: boolean;
+  onBrokerFilterChange: (broker: string) => void;
+  onShowHoldingsChange: (show: boolean) => void;
+  onShowCashChange: (show: boolean) => void;
 };
 
-export function HoldingsTable({ holdings, portfolioCurrency, costBasisMethod }: HoldingsTableProps) {
-  const [showHoldings, setShowHoldings] = useState(true);
-  const [showCash, setShowCash] = useState(false);
+export function HoldingsTable({
+  holdings,
+  portfolioCurrency,
+  costBasisMethod,
+  brokerFilter,
+  brokerOptions,
+  showHoldings,
+  showCash,
+  onBrokerFilterChange,
+  onShowHoldingsChange,
+  onShowCashChange,
+}: HoldingsTableProps) {
   const [openMenuAssetId, setOpenMenuAssetId] = useState<string | null>(null);
-  const [brokerFilter, setBrokerFilter] = useState("ALL");
-  const brokerOptions = useMemo(
-    () => Array.from(new Set(holdings.map((holding) => holding.broker))).sort((left, right) => left.localeCompare(right)),
-    [holdings],
-  );
   const visibleHoldings = useMemo(
     () =>
       holdings
@@ -39,7 +50,7 @@ export function HoldingsTable({ holdings, portfolioCurrency, costBasisMethod }: 
               <input
                 type="checkbox"
                 checked={showHoldings}
-                onChange={(event) => setShowHoldings(event.target.checked)}
+                onChange={(event) => onShowHoldingsChange(event.target.checked)}
                 className="h-3 w-3 rounded border-white/20 bg-panel text-neutral focus:ring-neutral/40"
               />
               Holdings
@@ -48,7 +59,7 @@ export function HoldingsTable({ holdings, portfolioCurrency, costBasisMethod }: 
               <input
                 type="checkbox"
                 checked={showCash}
-                onChange={(event) => setShowCash(event.target.checked)}
+                onChange={(event) => onShowCashChange(event.target.checked)}
                 className="h-3 w-3 rounded border-white/20 bg-panel text-neutral focus:ring-neutral/40"
               />
               Cash
@@ -57,7 +68,7 @@ export function HoldingsTable({ holdings, portfolioCurrency, costBasisMethod }: 
           <div className="flex items-center gap-1 rounded-md border border-white/10 bg-background/60 p-1">
             <select
               value={brokerFilter}
-              onChange={(event) => setBrokerFilter(event.target.value)}
+              onChange={(event) => onBrokerFilterChange(event.target.value)}
               className="h-6 w-40 rounded bg-background px-1.5 text-[10px] font-medium leading-none text-slate-300 outline-none hover:text-slate-100"
               aria-label="Filter holdings by exchange"
               title="Filter holdings by exchange"

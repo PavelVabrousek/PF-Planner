@@ -108,6 +108,12 @@ export type PortfolioSeriesPoint = {
   value: number;
 };
 
+export type FilteredPortfolioSeries = {
+  holdings: PortfolioSeriesPoint[];
+  cash: PortfolioSeriesPoint[];
+  all: PortfolioSeriesPoint[];
+};
+
 type DashboardHolding = Holding & {
   assetId: string;
   periodChange: Record<PeriodKey, number>;
@@ -191,6 +197,7 @@ export type DashboardData = {
   metrics: typeof demoMetrics;
   netWorthPerformance: PeriodPerformance[];
   portfolioSeries: PortfolioSeriesPoint[];
+  filteredPortfolioSeries: Record<string, FilteredPortfolioSeries>;
   allocation: typeof demoAllocation;
   holdings: DashboardHolding[];
   transactions: DashboardTransaction[];
@@ -358,6 +365,7 @@ function demoData(sourceMessage: string): DashboardData {
         value: point.value,
       };
     }),
+    filteredPortfolioSeries: {},
     allocation: demoAllocation,
     holdings: demoHoldings.map((holding) => ({
       ...holding,
@@ -584,7 +592,13 @@ function buildPortfolioSeries(
   priceHistory: Map<string, DbDailyPrice[]>,
   fxHistory: Map<string, DbFxRate[]>,
   portfolioCurrency: string,
+  options: {
+    includeAssetValues?: boolean;
+    includeCashBalances?: boolean;
+  } = {},
 ): PortfolioSeriesPoint[] {
+  const includeAssetValues = options.includeAssetValues ?? true;
+  const includeCashBalances = options.includeCashBalances ?? true;
   const pricedDates = Array.from(priceHistory.values())
     .flat()
     .map((price) => price.price_date);
@@ -623,13 +637,13 @@ function buildPortfolioSeries(
       const transaction = sortedTransactions[transactionIndex];
       const assetId = transaction.asset_id;
 
-      if (assetId && (transaction.type === "BUY" || transaction.type === "SELL")) {
+      if (includeAssetValues && assetId && (transaction.type === "BUY" || transaction.type === "SELL")) {
         const signedQuantity =
           transaction.type === "BUY" ? toNumber(transaction.quantity) : -toNumber(transaction.quantity);
         quantities.set(assetId, (quantities.get(assetId) ?? 0) + signedQuantity);
       }
 
-      if (transaction.cash_account_id) {
+      if (includeCashBalances && transaction.cash_account_id) {
         const existing = cashBalances.get(transaction.cash_account_id) ?? {
           currency: transaction.currency,
           balance: 0,
@@ -682,6 +696,77 @@ function buildPortfolioSeries(
   }
 
   return series.filter((point) => point.value > 0);
+}
+
+function buildFilteredPortfolioSeries(
+  brokers: string[],
+  holdings: DashboardHolding[],
+  transactions: DbTransaction[],
+  priceHistory: Map<string, DbDailyPrice[]>,
+  fxHistory: Map<string, DbFxRate[]>,
+  portfolioCurrency: string,
+  cashAccounts: DbPortfolioCashAccount[] = [],
+) {
+  const cashAccountBroker = new Map(cashAccounts.map((account) => [account.id, account.broker]));
+  const filterKeys = ["ALL", ...brokers];
+  const normalizeLatestValue = (series: PortfolioSeriesPoint[], value: number) => {
+    if (value <= 0) {
+      return [];
+    }
+
+    if (series.length === 0) {
+      const today = new Date();
+
+      return [
+        {
+          date: dateKey(today),
+          label: formatSeriesLabel(today),
+          value,
+        },
+      ];
+    }
+
+    return series.map((point, index) => (index === series.length - 1 ? { ...point, value } : point));
+  };
+
+  return Object.fromEntries(
+    filterKeys.map((broker) => {
+      const scopedTransactions =
+        broker === "ALL"
+          ? transactions
+          : transactions.filter(
+              (transaction) =>
+                transaction.assets?.broker === broker ||
+              (transaction.cash_account_id && cashAccountBroker.get(transaction.cash_account_id) === broker),
+            );
+      const scopedHoldings = holdings.filter((holding) => broker === "ALL" || holding.broker === broker);
+      const holdingsValue = scopedHoldings
+        .filter((holding) => holding.type !== "CASH")
+        .reduce((sum, holding) => sum + holding.valueCzk, 0);
+      const cashValue = scopedHoldings
+        .filter((holding) => holding.type === "CASH")
+        .reduce((sum, holding) => sum + holding.valueCzk, 0);
+
+      return [broker, {
+        holdings: normalizeLatestValue(
+          buildPortfolioSeries(scopedTransactions, priceHistory, fxHistory, portfolioCurrency, {
+            includeCashBalances: false,
+          }),
+          holdingsValue,
+        ),
+        cash: normalizeLatestValue(
+          buildPortfolioSeries(scopedTransactions, priceHistory, fxHistory, portfolioCurrency, {
+            includeAssetValues: false,
+          }),
+          cashValue,
+        ),
+        all: normalizeLatestValue(
+          buildPortfolioSeries(scopedTransactions, priceHistory, fxHistory, portfolioCurrency),
+          holdingsValue + cashValue,
+        ),
+      }];
+    }),
+  );
 }
 
 function buildTransactions(transactions: DbTransaction[]) {
@@ -1424,6 +1509,9 @@ function buildDashboardFromRows({
   sourceMessage: string;
 }): DashboardData {
   const holdings = buildHoldings(rows, priceHistory, fxHistory, portfolio.base_currency, corporateActions, cashAccounts);
+  const brokers = Array.from(new Set(holdings.map((holding) => holding.broker))).sort((left, right) =>
+    left.localeCompare(right),
+  );
   const netWorth = holdings.reduce((sum, holding) => sum + holding.valueCzk, 0);
   const totalCost = holdings.reduce((sum, holding) => sum + holding.costPortfolio, 0);
   const portfolioProfitLoss = holdings.reduce((sum, holding) => sum + holding.profitLossPortfolio, 0);
@@ -1468,6 +1556,15 @@ function buildDashboardFromRows({
     ],
     netWorthPerformance: buildNetWorthPerformance(holdings),
     portfolioSeries: buildPortfolioSeries(rows, priceHistory, fxHistory, portfolio.base_currency),
+    filteredPortfolioSeries: buildFilteredPortfolioSeries(
+      brokers,
+      holdings,
+      rows,
+      priceHistory,
+      fxHistory,
+      portfolio.base_currency,
+      cashAccounts,
+    ),
     allocation: buildAllocation(holdings),
     holdings,
     transactions: buildTransactions(rows),
