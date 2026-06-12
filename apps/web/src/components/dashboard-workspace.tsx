@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AllocationChart, PortfolioChart } from "@/components/portfolio-chart";
+import { AllocationChart, PortfolioChart, type PortfolioRange } from "@/components/portfolio-chart";
 import { HoldingsTable } from "@/components/holdings-table";
 import { formatCurrencyAmount, formatCurrencyNumber } from "@/lib/format";
 import type { DashboardData } from "@/lib/portfolio-data";
@@ -32,6 +32,7 @@ export function DashboardWorkspace({
   const [brokerFilter, setBrokerFilter] = useState("ALL");
   const [showHoldings, setShowHoldings] = useState(true);
   const [showCash, setShowCash] = useState(false);
+  const [portfolioRange, setPortfolioRange] = useState<PortfolioRange>("1Y");
   const scopedSeries = filteredPortfolioSeries[brokerFilter] ?? filteredPortfolioSeries.ALL;
   const chartData =
     showHoldings && showCash
@@ -65,6 +66,8 @@ export function DashboardWorkspace({
             currency={baseCurrency}
             eyebrow={chartEyebrow}
             title={chartTitle}
+            range={portfolioRange}
+            onRangeChange={setPortfolioRange}
           />
         </article>
 
@@ -76,6 +79,8 @@ export function DashboardWorkspace({
           brokerOptions={brokerOptions}
           showHoldings={showHoldings}
           showCash={showCash}
+          portfolioRange={portfolioRange}
+          onPortfolioRangeChange={setPortfolioRange}
           onBrokerFilterChange={setBrokerFilter}
           onShowHoldingsChange={setShowHoldings}
           onShowCashChange={setShowCash}

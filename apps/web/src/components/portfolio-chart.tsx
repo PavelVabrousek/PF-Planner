@@ -8,6 +8,8 @@ import {
   Cell,
   Pie,
   PieChart,
+  ReferenceArea,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -17,7 +19,7 @@ import { defaultNumberFormatPreferences, formatCurrencyAmount, formatCurrencyNum
 import type { DashboardData } from "@/lib/portfolio-data";
 import { cn } from "@/lib/utils";
 
-type PortfolioRange = "1W" | "1M" | "YTD" | "1Y" | "5Y" | "10Y";
+export type PortfolioRange = "1W" | "1M" | "YTD" | "1Y" | "5Y" | "10Y";
 
 const portfolioRanges = [
   { id: "1W", label: "Week" },
@@ -54,20 +56,27 @@ function subtractRange(date: Date, range: PortfolioRange) {
   return nextDate;
 }
 
-function rangeStartDate(data: DashboardData["portfolioSeries"], range: PortfolioRange) {
-  const latestPoint = data.at(-1);
+function todayUtcDate() {
+  const today = new Date();
+  return new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+}
 
-  if (!latestPoint) {
-    return null;
-  }
+function dateToTimestamp(date: string) {
+  return new Date(`${date}T00:00:00Z`).getTime();
+}
 
-  const latestDate = new Date(`${latestPoint.date}T00:00:00Z`);
+function timestampToDateKey(value: number) {
+  return new Date(value).toISOString().slice(0, 10);
+}
+
+function rangeStartDate(range: PortfolioRange) {
+  const today = todayUtcDate();
 
   if (range === "YTD") {
-    return new Date(Date.UTC(latestDate.getUTCFullYear(), 0, 1));
+    return new Date(Date.UTC(today.getUTCFullYear(), 0, 1));
   }
 
-  return subtractRange(latestDate, range);
+  return subtractRange(today, range);
 }
 
 function chartTick(value: string, range: PortfolioRange) {
@@ -153,28 +162,41 @@ export function PortfolioChart({
   currency,
   eyebrow,
   title,
+  range,
+  onRangeChange,
+  rangeControlName = "portfolio-range",
 }: {
   data: DashboardData["portfolioSeries"];
   currency: string;
   eyebrow: string;
   title: string;
+  range?: PortfolioRange;
+  onRangeChange?: (range: PortfolioRange) => void;
+  rangeControlName?: string;
 }) {
-  const [range, setRange] = useState<PortfolioRange>("1Y");
-  const filteredData = useMemo(() => {
-    const startDate = rangeStartDate(data, range);
+  const [localRange, setLocalRange] = useState<PortfolioRange>("1Y");
+  const selectedRange = range ?? localRange;
+  const setSelectedRange = onRangeChange ?? setLocalRange;
+  const todayTime = useMemo(() => todayUtcDate().getTime(), []);
+  const todayKey = useMemo(() => timestampToDateKey(todayTime), [todayTime]);
+  const rangeStartTime = useMemo(() => rangeStartDate(selectedRange).getTime(), [selectedRange]);
+  const chartData = useMemo(() => {
+    const startKey = timestampToDateKey(rangeStartTime);
+    const filteredData = data.filter((point) => point.date >= startKey && point.date <= todayKey);
 
-    if (!startDate) {
-      return data;
-    }
-
-    const startKey = startDate.toISOString().slice(0, 10);
-
-    return data.filter((point) => point.date >= startKey);
-  }, [data, range]);
+    return filteredData.map((point) => ({
+      ...point,
+      timestamp: dateToTimestamp(point.date),
+    }));
+  }, [data, rangeStartTime, todayKey]);
   const yAxis = useMemo(
-    () => buildMajorCurrencyAxis(filteredData.map((point) => point.value)),
-    [filteredData],
+    () => buildMajorCurrencyAxis(chartData.map((point) => point.value)),
+    [chartData],
   );
+  const latestPoint = chartData.at(-1);
+  const latestPointTime = latestPoint ? dateToTimestamp(latestPoint.date) : null;
+  const hasMissingTail = latestPointTime !== null && latestPointTime < todayTime;
+  const xDomain = useMemo(() => [rangeStartTime, todayTime] as [number, number], [rangeStartTime, todayTime]);
 
   return (
     <div className="space-y-2">
@@ -189,18 +211,18 @@ export function PortfolioChart({
             <label
               key={item.id}
               className={cn(
-                "flex h-7 cursor-pointer items-center justify-center gap-1 rounded px-1 text-[10px] font-medium",
-                range === item.id ? "bg-neutral/20 text-blue-200" : "text-slate-500 hover:text-slate-200",
-              )}
-            >
-              <input
-                type="radio"
-                name="portfolio-range"
-                value={item.id}
-                checked={range === item.id}
-                onChange={() => setRange(item.id)}
-                className="h-3 w-3 border-white/20 bg-panel text-neutral focus:ring-neutral/40"
-              />
+                  "flex h-7 cursor-pointer items-center justify-center gap-1 rounded px-1 text-[10px] font-medium",
+                  selectedRange === item.id ? "bg-neutral/20 text-blue-200" : "text-slate-500 hover:text-slate-200",
+                )}
+              >
+                <input
+                  type="radio"
+                  name={rangeControlName}
+                  value={item.id}
+                  checked={selectedRange === item.id}
+                  onChange={() => setSelectedRange(item.id)}
+                  className="h-3 w-3 border-white/20 bg-panel text-neutral focus:ring-neutral/40"
+                />
               {item.label}
             </label>
           ))}
@@ -209,7 +231,7 @@ export function PortfolioChart({
 
       <div className="h-64 min-h-64 w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={filteredData} margin={{ left: 0, right: 0, top: 8, bottom: 0 }}>
+          <AreaChart data={chartData} margin={{ left: 0, right: 0, top: 8, bottom: 0 }}>
             <defs>
               <linearGradient id="portfolioValue" x1="0" x2="0" y1="0" y2="1">
                 <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.55} />
@@ -218,12 +240,15 @@ export function PortfolioChart({
             </defs>
             <CartesianGrid stroke="rgba(148,163,184,0.12)" vertical={false} />
             <XAxis
-              dataKey="date"
+              dataKey="timestamp"
+              type="number"
+              scale="time"
+              domain={xDomain}
               tickLine={false}
               axisLine={false}
               tick={{ fill: "#94A3B8", fontSize: 11 }}
               minTickGap={14}
-              tickFormatter={(value: string) => chartTick(value, range)}
+              tickFormatter={(value: number) => chartTick(timestampToDateKey(value), selectedRange)}
             />
             <YAxis
               width={112}
@@ -246,6 +271,18 @@ export function PortfolioChart({
               formatter={(value: number) => [formatCurrencyAmount(value, currency), "Value"]}
               labelFormatter={(_, payload) => payload?.[0]?.payload?.label ?? ""}
             />
+            {hasMissingTail ? (
+              <>
+                <ReferenceArea
+                  x1={latestPointTime ?? todayTime}
+                  x2={todayTime}
+                  fill="#F59E0B"
+                  fillOpacity={0.08}
+                  ifOverflow="visible"
+                />
+                <ReferenceLine x={latestPointTime ?? todayTime} stroke="rgba(245,158,11,0.55)" strokeDasharray="4 4" />
+              </>
+            ) : null}
             <Area
               type="monotone"
               dataKey="value"
@@ -256,6 +293,11 @@ export function PortfolioChart({
           </AreaChart>
         </ResponsiveContainer>
       </div>
+      {hasMissingTail && latestPoint ? (
+        <p className="text-[10px] leading-4 text-warning">
+          Price data ends on {latestPoint.date}; update prices to fill the gap through today.
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -446,35 +446,26 @@ export async function GET(request: Request, context: { params: Promise<{ assetId
     }
   }
 
-  const [latestPriceResult, firstBuyResult] = await Promise.all([
-    pool.query<{ latest_date: string | null }>(
-      `
-      select max(price_date)::text as latest_date
-      from public.daily_prices
-      where asset_id = $1::uuid
-      `,
-      [assetId],
-    ),
-    pool.query<{ first_buy_date: string | null }>(
-      `
-      select min(trade_date)::text as first_buy_date
-      from public.transactions t
-      join public.portfolios p on p.id = t.portfolio_id
-      where t.asset_id = $1::uuid
-        and p.user_id = $2::uuid
-        and t.type = 'BUY'
-      `,
-      [assetId, auth.user.dataUserId],
-    ),
-  ]);
-  const latestDate = latestPriceResult.rows[0]?.latest_date;
+  const firstBuyResult = await pool.query<{ first_buy_date: string | null }>(
+    `
+    select min(trade_date)::text as first_buy_date
+    from public.transactions t
+    join public.portfolios p on p.id = t.portfolio_id
+    where t.asset_id = $1::uuid
+      and p.user_id = $2::uuid
+      and t.type = 'BUY'
+    `,
+    [assetId, auth.user.dataUserId],
+  );
   const firstBuyDate = firstBuyResult.rows[0]?.first_buy_date;
   let startDate: string | null = null;
+  const today = new Date();
+  const todayDate = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
 
-  if (latestDate && range === "YTD") {
-    startDate = `${new Date(`${latestDate}T00:00:00Z`).getUTCFullYear()}-01-01`;
-  } else if (latestDate && range !== "ALL") {
-    startDate = dateKey(subtractRange(new Date(`${latestDate}T00:00:00Z`), range));
+  if (range === "YTD") {
+    startDate = `${todayDate.getUTCFullYear()}-01-01`;
+  } else if (range !== "ALL") {
+    startDate = dateKey(subtractRange(todayDate, range));
   } else if (range === "ALL") {
     startDate = firstBuyDate;
   }
@@ -493,6 +484,7 @@ export async function GET(request: Request, context: { params: Promise<{ assetId
     from public.daily_prices
     where asset_id = $1::uuid
       and ($2::date is null or price_date >= $2::date)
+      and price_date <= current_date
     order by price_date asc
     `,
     [assetId, startDate],

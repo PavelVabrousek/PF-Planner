@@ -6,7 +6,9 @@ import {
   CartesianGrid,
   ComposedChart,
   Line,
+  ReferenceArea,
   ReferenceDot,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -347,11 +349,16 @@ type AssetChartPoint = {
   ma200?: number | null;
 };
 
+type TimedAssetChartPoint = AssetChartPoint & {
+  timestamp: number;
+};
+
 type VisibleChartEvent = AssetChartEvent & {
-  chartDate: string;
+  chartDate: string | number;
   chartPointDate: string;
   chartLabel: string;
   chartPrice: number;
+  chartTimestamp: number;
 };
 
 type AssetChartResponse = {
@@ -417,7 +424,60 @@ function compactChartTick(value: string, range: AssetChartRange) {
   return date.toLocaleDateString("en-US", { month: "short", year: "2-digit", timeZone: "UTC" });
 }
 
-function sampleCandlePoints(points: AssetChartPoint[], maxPoints = 120) {
+function todayUtcDate() {
+  const today = new Date();
+  return new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+}
+
+function dateToTimestamp(date: string) {
+  return new Date(date.includes("T") ? date : `${date}T00:00:00Z`).getTime();
+}
+
+function timestampToDateKey(value: number) {
+  return new Date(value).toISOString().slice(0, 10);
+}
+
+function subtractAssetRange(date: Date, range: AssetChartRange) {
+  const startDate = new Date(date);
+
+  if (range === "1W") {
+    startDate.setUTCDate(startDate.getUTCDate() - 7);
+  }
+
+  if (range === "1M") {
+    startDate.setUTCMonth(startDate.getUTCMonth() - 1);
+  }
+
+  if (range === "1Y") {
+    startDate.setUTCFullYear(startDate.getUTCFullYear() - 1);
+  }
+
+  if (range === "5Y") {
+    startDate.setUTCFullYear(startDate.getUTCFullYear() - 5);
+  }
+
+  if (range === "10Y") {
+    startDate.setUTCFullYear(startDate.getUTCFullYear() - 10);
+  }
+
+  return startDate;
+}
+
+function assetRangeStartDate(range: AssetChartRange, fallbackDate: string | null) {
+  const today = todayUtcDate();
+
+  if (range === "YTD") {
+    return new Date(Date.UTC(today.getUTCFullYear(), 0, 1));
+  }
+
+  if (range === "ALL") {
+    return fallbackDate ? new Date(`${fallbackDate}T00:00:00Z`) : today;
+  }
+
+  return subtractAssetRange(today, range);
+}
+
+function sampleCandlePoints<TPoint extends AssetChartPoint>(points: TPoint[], maxPoints = 120) {
   if (points.length <= maxPoints) {
     return points;
   }
@@ -458,11 +518,11 @@ function eventDateKey(date: string, range: AssetChartRange) {
   return date.slice(0, 10);
 }
 
-function chartDateKey(point: AssetChartPoint, range: AssetChartRange) {
+function chartDateKey(point: Pick<AssetChartPoint, "date">, range: AssetChartRange) {
   return eventDateKey(point.date, range);
 }
 
-function findEventPoint(points: AssetChartPoint[], event: AssetChartEvent, range: AssetChartRange) {
+function findEventPoint(points: TimedAssetChartPoint[], event: AssetChartEvent, range: AssetChartRange) {
   const eventKey = eventDateKey(event.date, range);
   const exactPoint = points.find((point) => chartDateKey(point, range) === eventKey);
 
@@ -475,7 +535,7 @@ function findEventPoint(points: AssetChartPoint[], event: AssetChartEvent, range
 
 function buildVisibleChartEvents(
   events: AssetChartEvent[],
-  points: AssetChartPoint[],
+  points: TimedAssetChartPoint[],
   range: AssetChartRange,
 ): VisibleChartEvent[] {
   if (points.length === 0) {
@@ -500,10 +560,11 @@ function buildVisibleChartEvents(
       return [
         {
           ...event,
-          chartDate: range === "1D" ? point.label : point.date,
+          chartDate: range === "1D" ? point.label : point.timestamp,
           chartPointDate: point.date,
           chartLabel: point.label,
           chartPrice: point.close,
+          chartTimestamp: point.timestamp,
         },
       ];
     });
@@ -595,12 +656,18 @@ function AssetCandleSvg({
   currency,
   showMa7,
   showMa200,
+  domainStartTime,
+  domainEndTime,
+  missingStartTime,
 }: {
-  data: AssetChartPoint[];
+  data: TimedAssetChartPoint[];
   events: VisibleChartEvent[];
   currency: string;
   showMa7: boolean;
   showMa200: boolean;
+  domainStartTime: number;
+  domainEndTime: number;
+  missingStartTime: number | null;
 }) {
   const candleData = sampleCandlePoints(data);
   const width = 760;
@@ -627,35 +694,35 @@ function AssetCandleSvg({
   ]);
   const [minPrice, maxPrice] = yAxis.domain;
   const priceRange = Math.max(0.000001, maxPrice - minPrice);
-  const xStep = candleData.length > 1 ? chartWidth / (candleData.length - 1) : chartWidth;
+  const timeRange = Math.max(1, domainEndTime - domainStartTime);
+  const x = (timestamp: number) => padding.left + ((timestamp - domainStartTime) / timeRange) * chartWidth;
+  const xStep = candleData.length > 1 ? chartWidth / candleData.length : chartWidth;
   const candleWidth = Math.max(2, Math.min(8, xStep * 0.55));
   const y = (value: number) => padding.top + ((maxPrice - value) / priceRange) * chartHeight;
   const gridValues = yAxis.ticks.length >= 2 ? yAxis.ticks : [minPrice, maxPrice];
   const eventMarkers = events.flatMap((event) => {
-    const pointIndex = candleData.findIndex((point) => point.date >= event.chartPointDate);
-
-    if (pointIndex < 0) {
+    if (event.chartTimestamp < domainStartTime || event.chartTimestamp > domainEndTime) {
       return [];
     }
 
     return [
       {
         event,
-        x: padding.left + pointIndex * xStep,
+        x: x(event.chartTimestamp),
         y: y(event.chartPrice),
       },
     ];
   });
   const movingAveragePolyline = (key: "ma7" | "ma200") =>
     candleData
-      .map((point, index) => {
+      .map((point) => {
         const value = point[key];
 
         if (value === null || value === undefined) {
           return null;
         }
 
-        return `${padding.left + index * xStep},${y(value)}`;
+        return `${x(point.timestamp)},${y(value)}`;
       })
       .filter((point): point is string => point !== null)
       .join(" ");
@@ -685,8 +752,28 @@ function AssetCandleSvg({
           </g>
         );
       })}
+      {missingStartTime && missingStartTime < domainEndTime ? (
+        <>
+          <rect
+            x={x(missingStartTime)}
+            y={padding.top}
+            width={Math.max(0, x(domainEndTime) - x(missingStartTime))}
+            height={chartHeight}
+            fill="#F59E0B"
+            opacity="0.08"
+          />
+          <line
+            x1={x(missingStartTime)}
+            x2={x(missingStartTime)}
+            y1={padding.top}
+            y2={padding.top + chartHeight}
+            stroke="rgba(245,158,11,0.55)"
+            strokeDasharray="4 4"
+          />
+        </>
+      ) : null}
       {candleData.map((point, index) => {
-        const x = padding.left + index * xStep;
+        const candleX = x(point.timestamp);
         const isUp = point.close >= point.open;
         const color = isUp ? "#22C55E" : "#EF4444";
         const bodyTop = y(Math.max(point.open, point.close));
@@ -695,9 +782,9 @@ function AssetCandleSvg({
 
         return (
           <g key={`${point.date}-${index}`}>
-            <line x1={x} x2={x} y1={y(point.high)} y2={y(point.low)} stroke={color} strokeWidth="1.2" />
+            <line x1={candleX} x2={candleX} y1={y(point.high)} y2={y(point.low)} stroke={color} strokeWidth="1.2" />
             <rect
-              x={x - candleWidth / 2}
+              x={candleX - candleWidth / 2}
               y={bodyTop}
               width={candleWidth}
               height={bodyHeight}
@@ -752,10 +839,10 @@ function AssetCandleSvg({
         </g>
       ))}
       <text x={padding.left} y={height - 5} fill="#64748B" fontSize="10">
-        {candleData[0]?.label}
+        {timestampToDateKey(domainStartTime)}
       </text>
       <text x={width - padding.right - 48} y={height - 5} fill="#64748B" fontSize="10">
-        {candleData.at(-1)?.label}
+        {timestampToDateKey(domainEndTime)}
       </text>
     </svg>
   );
@@ -806,7 +893,26 @@ function ChartScaffold({
   const [data, setData] = useState<AssetChartResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const chartData = useMemo(() => withMovingAverages(data?.points ?? []), [data]);
+  const rawChartData = useMemo(() => withMovingAverages(data?.points ?? []), [data]);
+  const firstRawPoint = rawChartData[0];
+  const todayTime = useMemo(() => todayUtcDate().getTime(), []);
+  const todayKey = useMemo(() => timestampToDateKey(todayTime), [todayTime]);
+  const chartStartTime = useMemo(
+    () => assetRangeStartDate(range, firstRawPoint?.date.slice(0, 10) ?? null).getTime(),
+    [firstRawPoint?.date, range],
+  );
+  const chartData = useMemo<TimedAssetChartPoint[]>(() => {
+    const startKey = timestampToDateKey(chartStartTime);
+    const points =
+      range === "1D"
+        ? rawChartData
+        : rawChartData.filter((point) => point.date.slice(0, 10) >= startKey && point.date.slice(0, 10) <= todayKey);
+
+    return points.map((point) => ({
+      ...point,
+      timestamp: dateToTimestamp(point.date),
+    }));
+  }, [chartStartTime, rawChartData, range, todayKey]);
   const visibleChartEvents = useMemo(
     () => buildVisibleChartEvents(holding.chartEvents, chartData, range),
     [holding.chartEvents, chartData, range],
@@ -826,6 +932,12 @@ function ChartScaffold({
   const currency = data?.currency ?? displayCurrency;
   const latestPoint = chartData.at(-1);
   const firstPoint = chartData[0];
+  const latestPointTime = latestPoint ? dateToTimestamp(latestPoint.date) : null;
+  const hasMissingTail = range !== "1D" && latestPointTime !== null && latestPointTime < todayTime;
+  const xDomain = useMemo(
+    () => [chartStartTime, todayTime] as [number, number],
+    [chartStartTime, todayTime],
+  );
   const rangeChange =
     firstPoint && latestPoint && firstPoint.close > 0
       ? ((latestPoint.close - firstPoint.close) / firstPoint.close) * 100
@@ -975,12 +1087,17 @@ function ChartScaffold({
               </defs>
               <CartesianGrid stroke="rgba(148,163,184,0.12)" vertical={false} />
               <XAxis
-                dataKey={range === "1D" ? "label" : "date"}
+                dataKey={range === "1D" ? "label" : "timestamp"}
+                type={range === "1D" ? "category" : "number"}
+                scale={range === "1D" ? undefined : "time"}
+                domain={range === "1D" ? undefined : xDomain}
                 tickLine={false}
                 axisLine={false}
                 minTickGap={14}
                 tick={{ fill: "#94A3B8", fontSize: 10 }}
-                tickFormatter={(value: string) => compactChartTick(value, range)}
+                tickFormatter={(value: string | number) =>
+                  compactChartTick(typeof value === "number" ? timestampToDateKey(value) : value, range)
+                }
               />
               <YAxis
                 width={96}
@@ -1010,8 +1127,22 @@ function ChartScaffold({
                         ? "Event"
                         : "Close",
                 ]}
-                labelFormatter={(label: string) => label}
+                labelFormatter={(label: string | number) =>
+                  range === "1D" || typeof label === "string" ? label : timestampToDateKey(label)
+                }
               />
+              {hasMissingTail ? (
+                <>
+                  <ReferenceArea
+                    x1={latestPointTime ?? todayTime}
+                    x2={todayTime}
+                    fill="#F59E0B"
+                    fillOpacity={0.08}
+                    ifOverflow="visible"
+                  />
+                  <ReferenceLine x={latestPointTime ?? todayTime} stroke="rgba(245,158,11,0.55)" strokeDasharray="4 4" />
+                </>
+              ) : null}
               <Area
                 type="monotone"
                 dataKey="close"
@@ -1072,11 +1203,20 @@ function ChartScaffold({
             currency={currency}
             showMa7={showMa7}
             showMa200={showMa200}
+            domainStartTime={chartStartTime}
+            domainEndTime={todayTime}
+            missingStartTime={hasMissingTail ? latestPointTime : null}
           />
         )}
       </div>
 
       {visibleChartEvents.length > 0 ? <AssetChartLegend events={visibleChartEvents} /> : null}
+
+      {hasMissingTail && latestPoint ? (
+        <p className="text-[10px] leading-4 text-warning">
+          Price data ends on {latestPoint.date.slice(0, 10)}; refresh this asset to fill the gap through today.
+        </p>
+      ) : null}
 
       {data?.delayNotice ? (
         <p className="text-[10px] leading-4 text-slate-500">{data.delayNotice}</p>

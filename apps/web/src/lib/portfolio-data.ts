@@ -120,6 +120,8 @@ type DashboardHolding = Holding & {
   buyTransactions: BuyTransactionHistoryRow[];
   dividendHistory: DividendHistoryRow[];
   chartEvents: AssetChartEvent[];
+  cashSeries?: PortfolioSeriesPoint[];
+  cashTransactions?: DashboardTransaction[];
   costPortfolio: number;
   dividendsPortfolio: number;
   profitLossPortfolio: number;
@@ -769,7 +771,7 @@ function buildFilteredPortfolioSeries(
   );
 }
 
-function buildTransactions(transactions: DbTransaction[]) {
+function buildTransactions(transactions: DbTransaction[], limit = 10) {
   return [...transactions].sort((left, right) => {
     const dateOrder = right.trade_date.localeCompare(left.trade_date);
 
@@ -778,7 +780,7 @@ function buildTransactions(transactions: DbTransaction[]) {
     }
 
     return right.id.localeCompare(left.id);
-  }).slice(0, 10).map((transaction) => {
+  }).slice(0, limit).map((transaction) => {
     const cash = transactionCashValue(transaction) + toNumber(transaction.fee) + toNumber(transaction.tax);
     const amount =
       transaction.type === "BUY" ||
@@ -1180,9 +1182,8 @@ function buildHoldings(
     })
     .filter((holding) => holding.valueCzk > 0.000001);
   const cashRows = cashAccounts.flatMap((account): DashboardHolding[] => {
-    const balance = transactions
-      .filter((transaction) => transaction.cash_account_id === account.id)
-      .reduce((sum, transaction) => sum + cashAccountDelta(transaction), 0);
+    const accountTransactions = transactions.filter((transaction) => transaction.cash_account_id === account.id);
+    const balance = accountTransactions.reduce((sum, transaction) => sum + cashAccountDelta(transaction), 0);
 
     if (Math.abs(balance) <= 0.000001) {
       return [];
@@ -1215,6 +1216,10 @@ function buildHoldings(
         buyTransactions: [],
         dividendHistory: [],
         chartEvents: [],
+        cashSeries: buildPortfolioSeries(accountTransactions, new Map(), fxHistory, portfolioCurrency, {
+          includeAssetValues: false,
+        }),
+        cashTransactions: buildTransactions(accountTransactions, accountTransactions.length),
       },
     ];
   });
