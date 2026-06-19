@@ -19,6 +19,11 @@ type PortfolioAssetRow = AssetRow & {
   base_currency: string;
   first_trade_date: string;
   latest_price_date: string | null;
+  latest_price_close: string | number | null;
+  latest_price_adjusted_close: string | number | null;
+  latest_price_currency: string | null;
+  latest_price_source: string | null;
+  earliest_unfinished_price_date: string | null;
 };
 
 type DailyPriceInput = {
@@ -105,6 +110,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_HISTORY_DAYS = 365 * 10 + 14;
 const YAHOO_SOURCE = "yahoo_chart";
 const STOOQ_SOURCE = "stooq";
+const UNFINISHED_SOURCE_SUFFIX = "_unfinished";
+const CARRIED_FORWARD_SOURCE = "last_known_price_unfinished";
 const ECB_SOURCE = "ECB";
 const INSERT_CHUNK_SIZE = 500;
 const YAHOO_SYMBOL_OVERRIDES: Record<string, string> = {
@@ -118,6 +125,32 @@ const YAHOO_SYMBOL_OVERRIDES: Record<string, string> = {
 
 function formatDate(date: Date) {
   return date.toISOString().slice(0, 10);
+}
+
+function formatTimestampDate(timestamp: number, timeZone: string | null | undefined) {
+  if (!timeZone) {
+    return formatDate(new Date(timestamp * 1000));
+  }
+
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(new Date(timestamp * 1000));
+    const year = parts.find((part) => part.type === "year")?.value;
+    const month = parts.find((part) => part.type === "month")?.value;
+    const day = parts.find((part) => part.type === "day")?.value;
+
+    if (year && month && day) {
+      return `${year}-${month}-${day}`;
+    }
+  } catch {
+    return formatDate(new Date(timestamp * 1000));
+  }
+
+  return formatDate(new Date(timestamp * 1000));
 }
 
 function compactDate(date: Date) {
@@ -148,12 +181,25 @@ function parseTradeDate(value: string) {
   return new Date(`${value}T00:00:00Z`);
 }
 
-function getIncrementalStartDate(latestDate: string | null, fallbackStart: Date) {
+function isUnfinishedPriceSource(source: string | null | undefined) {
+  return source === CARRIED_FORWARD_SOURCE || source?.endsWith(UNFINISHED_SOURCE_SUFFIX) === true;
+}
+
+function unfinishedPriceSource(source: string) {
+  return isUnfinishedPriceSource(source) ? source : `${source}${UNFINISHED_SOURCE_SUFFIX}`;
+}
+
+function getIncrementalStartDate(latestDate: string | null, fallbackStart: Date, latestSource?: string | null) {
   if (!latestDate) {
     return fallbackStart;
   }
 
   const nextDate = new Date(`${latestDate}T00:00:00Z`);
+
+  if (isUnfinishedPriceSource(latestSource)) {
+    return nextDate;
+  }
+
   nextDate.setUTCDate(nextDate.getUTCDate() + 1);
 
   return nextDate;
@@ -227,6 +273,86 @@ function getTickerCandidates(asset: AssetRow) {
   return Array.from(symbols);
 }
 
+function priceNumber(value: string | number | null | undefined) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function latestStoredPrice(asset: PortfolioAssetRow): DailyPriceInput | null {
+  const value = priceNumber(asset.latest_price_adjusted_close ?? asset.latest_price_close);
+
+  if (!asset.latest_price_date || !asset.latest_price_currency || asset.latest_price_currency !== asset.currency || !value || value <= 0) {
+    return null;
+  }
+
+  return {
+    assetId: asset.id,
+    date: asset.latest_price_date,
+    open: null,
+    high: null,
+    low: null,
+    close: value,
+    adjustedClose: value,
+    volume: null,
+    currency: asset.currency,
+    source: asset.latest_price_source ?? CARRIED_FORWARD_SOURCE,
+  };
+}
+
+function markCurrentDatePrices(prices: DailyPriceInput[], currentDate: string) {
+  return prices.map((price) => ({
+    ...price,
+    source: price.date === currentDate ? unfinishedPriceSource(price.source) : price.source,
+  }));
+}
+
+function withCurrentDatePrice(
+  asset: PortfolioAssetRow,
+  prices: DailyPriceInput[],
+  currentDate: string,
+  storedLatestPrice: DailyPriceInput | null,
+) {
+  const markedPrices = markCurrentDatePrices(prices, currentDate);
+
+  if (markedPrices.some((price) => price.date === currentDate)) {
+    return markedPrices;
+  }
+
+  const latestKnownPrice = [...markedPrices, ...(storedLatestPrice ? [storedLatestPrice] : [])]
+    .filter((price) => price.currency === asset.currency && price.date <= currentDate)
+    .sort((left, right) => right.date.localeCompare(left.date))[0];
+
+  if (!latestKnownPrice) {
+    return markedPrices;
+  }
+
+  const value = latestKnownPrice.adjustedClose ?? latestKnownPrice.close;
+
+  return [
+    ...markedPrices,
+    {
+      assetId: asset.id,
+      date: currentDate,
+      open: null,
+      high: null,
+      low: null,
+      close: value,
+      adjustedClose: value,
+      volume: null,
+      currency: asset.currency,
+      source: CARRIED_FORWARD_SOURCE,
+    },
+  ];
+}
+
 async function fetchYahooAssetData(asset: AssetRow, start: Date, end: Date) {
   for (const yahooSymbol of getTickerCandidates(asset)) {
     const url = new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}`);
@@ -251,7 +377,7 @@ async function fetchYahooAssetData(asset: AssetRow, start: Date, end: Date) {
         chart?: {
           result?: Array<{
             timestamp?: number[];
-            meta?: { currency?: string };
+            meta?: { currency?: string; exchangeTimezoneName?: string };
             indicators?: {
               quote?: Array<{
                 open?: Array<number | null>;
@@ -276,6 +402,7 @@ async function fetchYahooAssetData(asset: AssetRow, start: Date, end: Date) {
       const quote = result?.indicators?.quote?.[0];
       const adjusted = result?.indicators?.adjclose?.[0]?.adjclose ?? [];
       const resultCurrency = normalizeCurrency(result?.meta?.currency) ?? asset.currency;
+      const resultTimeZone = result?.meta?.exchangeTimezoneName;
 
       if (!result || timestamps.length === 0 || !quote) {
         continue;
@@ -295,7 +422,7 @@ async function fetchYahooAssetData(asset: AssetRow, start: Date, end: Date) {
         return [
           {
             assetId: asset.id,
-            date: formatDate(new Date(timestamp * 1000)),
+            date: formatTimestampDate(timestamp, resultTimeZone),
             open: numberOrNull(quote.open?.[index]),
             high: numberOrNull(quote.high?.[index]),
             low: numberOrNull(quote.low?.[index]),
@@ -683,7 +810,12 @@ export async function recalculatePortfolioData(
       a.data_provider,
       a.provider_symbol,
       min(t.trade_date)::text as first_trade_date,
-      max(dp.price_date)::text as latest_price_date
+      max(dp.price_date)::text as latest_price_date,
+      (array_agg(dp.close order by dp.price_date desc) filter (where dp.price_date is not null))[1] as latest_price_close,
+      (array_agg(dp.adjusted_close order by dp.price_date desc) filter (where dp.price_date is not null))[1] as latest_price_adjusted_close,
+      (array_agg(dp.currency order by dp.price_date desc) filter (where dp.price_date is not null))[1]::text as latest_price_currency,
+      (array_agg(dp.source order by dp.price_date desc) filter (where dp.price_date is not null))[1] as latest_price_source,
+      (min(dp.price_date) filter (where dp.source = $3::text or right(dp.source, length($4::text)) = $4::text))::text as earliest_unfinished_price_date
     from public.portfolios p
     join public.transactions t on t.portfolio_id = p.id
     join public.assets a on a.id = t.asset_id
@@ -705,7 +837,7 @@ export async function recalculatePortfolioData(
       a.provider_symbol
     order by a.symbol
     `,
-    [userId, portfolioName],
+    [userId, portfolioName, CARRIED_FORWARD_SOURCE, UNFINISHED_SOURCE_SUFFIX],
   );
 
   const portfolioNameResult = assetsResult.rows[0]?.portfolio_name ?? portfolioName ?? "Portfolio";
@@ -746,7 +878,10 @@ export async function recalculatePortfolioData(
     }
     const assetStart =
       mode === "incremental" && removedMismatchedRows.dailyPrices === 0
-        ? getIncrementalStartDate(asset.latest_price_date, start)
+        ? earlierDate(
+            getIncrementalStartDate(asset.latest_price_date, start, asset.latest_price_source),
+            asset.earliest_unfinished_price_date ? parseTradeDate(asset.earliest_unfinished_price_date) : end,
+          )
         : cleanupStart;
 
     if (isAfterEndDate(assetStart, end)) {
@@ -762,10 +897,13 @@ export async function recalculatePortfolioData(
       continue;
     }
 
+    const storedLatestPrice = latestStoredPrice(asset);
     const yahooData = await fetchYahooAssetData(asset, assetStart, end);
     const fallbackData = yahooData ? null : await fetchStooqPrices(asset, assetStart, end);
+    const providerPrices = yahooData?.prices ?? fallbackData?.prices ?? [];
+    const prices = withCurrentDatePrice(asset, providerPrices, endDate, storedLatestPrice);
 
-    if (!yahooData && !fallbackData) {
+    if (prices.length === 0) {
       const warning = `No free historical price data found for ${asset.symbol}.`;
       warnings.push(warning);
       await onProgress?.({
@@ -778,7 +916,6 @@ export async function recalculatePortfolioData(
       continue;
     }
 
-    const prices = yahooData?.prices ?? fallbackData?.prices ?? [];
     const actions = yahooData?.corporateActions ?? [];
     const providerSymbol = yahooData?.providerSymbol ?? fallbackData?.providerSymbol ?? asset.provider_symbol;
 
