@@ -2,11 +2,11 @@ import { Bell, LogOut, Search, UserCircle2 } from "lucide-react";
 import { redirect } from "next/navigation";
 import { DividendsWindowButton } from "@/components/dividends-window-button";
 import { DashboardWorkspace } from "@/components/dashboard-workspace";
+import { IconTooltip } from "@/components/icon-tooltip";
 import { ModeSwitcher } from "@/components/mode-switcher";
 import { RecalculatePortfolioButton } from "@/components/recalculate-portfolio-button";
 import { TransactionButton } from "@/components/transaction-button";
 import { getCurrentPfpUser } from "@/lib/auth/current-user";
-import { navItems } from "@/lib/demo-data";
 import {
   defaultNumberFormatPreferences,
   formatPercent,
@@ -57,41 +57,49 @@ export default async function DashboardPage() {
   const { holdings, metrics } = dashboard;
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-3 pb-24 pt-3 sm:px-5 lg:px-6 lg:pb-8">
-      <header className="sticky top-0 z-20 -mx-3 border-b border-white/5 bg-background/90 px-3 py-3 backdrop-blur sm:-mx-5 sm:px-5 lg:-mx-6 lg:px-6">
-        <div className="flex items-center gap-2">
+    <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-3 pb-6 pt-3 sm:px-5 lg:px-6 lg:pb-8">
+      <header className="sticky top-0 z-40 -mx-3 border-b border-white/5 bg-background/90 px-3 py-3 backdrop-blur sm:-mx-5 sm:px-5 lg:-mx-6 lg:px-6">
+        <div className="flex items-center gap-1.5 sm:gap-2">
           <ModeSwitcher />
-          <button
-            type="button"
-            aria-label="Search"
-            title="Search"
-            className="hidden h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-panel text-slate-300 hover:border-neutral/50 hover:text-slate-50 sm:flex"
-          >
-            <Search size={17} />
-          </button>
-          <button
-            type="button"
-            aria-label="Notifications"
-            title="Notifications"
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-panel text-slate-300 hover:border-neutral/50 hover:text-slate-50"
-          >
-            <Bell size={17} />
-          </button>
-          <div
-            className="hidden h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-panel text-slate-300 md:flex"
-            title={`${auth.user.email} · ${auth.user.isLocalBypass ? "Local bypass" : "Google login"}`}
-            aria-label={`${auth.user.email} user session`}
-          >
-            <UserCircle2 size={17} />
-          </div>
-          <a
-            href="/auth/logout"
-            aria-label="Sign out"
-            title="Sign out"
-            className="hidden h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-panel text-slate-300 hover:border-neutral/50 hover:text-slate-50 md:flex"
-          >
-            <LogOut size={16} />
-          </a>
+          <IconTooltip label="Search">
+            <button
+              type="button"
+              aria-label="Search"
+              title="Search"
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-white/10 bg-panel text-slate-300 hover:border-neutral/50 hover:text-slate-50 sm:h-9 sm:w-9"
+            >
+              <Search size={16} />
+            </button>
+          </IconTooltip>
+          <IconTooltip label="Notifications">
+            <button
+              type="button"
+              aria-label="Notifications"
+              title="Notifications"
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-white/10 bg-panel text-slate-300 hover:border-neutral/50 hover:text-slate-50 sm:h-9 sm:w-9"
+            >
+              <Bell size={16} />
+            </button>
+          </IconTooltip>
+          <IconTooltip label={`${auth.user.email} · ${auth.user.isLocalBypass ? "Local bypass" : "Google login"}`}>
+            <div
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-white/10 bg-panel text-slate-300 sm:h-9 sm:w-9"
+              title={`${auth.user.email} · ${auth.user.isLocalBypass ? "Local bypass" : "Google login"}`}
+              aria-label={`${auth.user.email} user session`}
+            >
+              <UserCircle2 size={16} />
+            </div>
+          </IconTooltip>
+          <IconTooltip label="Sign out">
+            <a
+              href="/auth/logout"
+              aria-label="Sign out"
+              title="Sign out"
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-white/10 bg-panel text-slate-300 hover:border-neutral/50 hover:text-slate-50 sm:h-9 sm:w-9"
+            >
+              <LogOut size={16} />
+            </a>
+          </IconTooltip>
           <RecalculatePortfolioButton />
           <RecalculatePortfolioButton mode="incremental" label="Update" />
           <TransactionButton portfolioCurrency={dashboard.baseCurrency} />
@@ -150,24 +158,6 @@ export default async function DashboardPage() {
         holdings={dashboard.holdings}
         transactions={dashboard.transactions}
       />
-
-      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-white/10 bg-panel/95 px-2 py-2 backdrop-blur lg:hidden">
-        <div className="mx-auto grid max-w-md grid-cols-6 gap-1">
-          {navItems.map((item) => (
-            <button
-              key={item.label}
-              type="button"
-              className={cn(
-                "flex h-12 flex-col items-center justify-center gap-1 rounded-md text-[10px]",
-                item.active ? "bg-neutral/15 text-blue-300" : "text-slate-500",
-              )}
-            >
-              <item.icon size={16} />
-              <span className="leading-none">{item.label}</span>
-            </button>
-          ))}
-        </div>
-      </nav>
     </main>
   );
 }

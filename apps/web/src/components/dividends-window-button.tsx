@@ -163,8 +163,8 @@ export function DividendsWindowButton({
 
       {isOpen ? (
         <section
-          className="fixed z-[80] max-h-[min(76vh,620px)] w-[min(860px,calc(100vw-1rem))] min-w-[min(600px,calc(100vw-1rem))] resize overflow-auto rounded-lg border border-teal-300/20 bg-panel text-left shadow-[0_24px_80px_rgba(0,0,0,0.45)]"
-          style={{ left: position.x, top: position.y }}
+          className="fixed left-1 top-24 z-[30] flex max-h-[min(76vh,620px)] w-[calc(100vw-0.5rem)] max-w-[calc(100vw-0.5rem)] resize-none flex-col overflow-hidden rounded-lg border border-teal-300/20 bg-panel text-left shadow-[0_24px_80px_rgba(0,0,0,0.45)] sm:resize sm:w-[min(860px,calc(100vw-1rem))] sm:max-w-[calc(100vw-1rem)]"
+          style={{ left: `max(0.25rem, min(${position.x}px, calc(100vw - min(860px, calc(100vw - 1rem)) - 0.5rem)))`, top: position.y }}
         >
           <div
             className="sticky top-0 z-10 flex cursor-move touch-none items-center justify-between gap-3 border-b border-teal-300/10 bg-panel/95 px-3 py-2 backdrop-blur"
@@ -195,7 +195,7 @@ export function DividendsWindowButton({
             </div>
           </div>
 
-          <div className="space-y-2.5 p-3">
+          <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto p-3">
             <div className="grid gap-2 text-xs sm:grid-cols-[1fr_1fr_1fr_auto]">
               <select
                 value={assetFilter}

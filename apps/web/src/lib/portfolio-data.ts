@@ -10,6 +10,12 @@ import { canUseDemoFallback } from "@/lib/auth/config";
 import type { CurrentPfpUser } from "@/lib/auth/current-user";
 import { createPostgresPool } from "@/lib/db/postgres";
 import { defaultNumberFormatPreferences, formatCurrencyAmount, formatNumber, formatPercent } from "@/lib/format";
+import {
+  expectedPortfolioNameForUser,
+  getUserActivePortfolio,
+  selectSingleActivePortfolio,
+  type ActivePortfolio,
+} from "@/lib/portfolio/active-portfolio";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 type DbPortfolio = {
@@ -17,6 +23,10 @@ type DbPortfolio = {
   name: string;
   base_currency: string;
   cost_basis_method: string;
+};
+
+type DbProfile = {
+  display_name: string | null;
 };
 
 type DbAsset = {
@@ -1309,25 +1319,8 @@ async function getPostgresDashboardData(user: CurrentPfpUser): Promise<Dashboard
     return null;
   }
 
-  const userId = user.dataUserId;
-  const portfolioName = process.env.PFP_PORTFOLIO_NAME ?? null;
-
   try {
-    const portfolioResult = await pool.query<DbPortfolio>(
-      `
-      select id, name, base_currency, cost_basis_method
-      from public.portfolios
-      where is_archived = false
-        and user_id = $1::uuid
-      order by
-        case when $2::text is not null and name = $2::text then 0 else 1 end,
-        created_at asc
-      limit 1
-      `,
-      [userId, portfolioName],
-    );
-
-    const portfolio = portfolioResult.rows[0];
+    const portfolio = await getUserActivePortfolio(pool, user);
 
     if (!portfolio) {
       if (canUseDemoFallback()) {
@@ -1599,7 +1592,6 @@ export async function getDashboardData(user: CurrentPfpUser): Promise<DashboardD
     .eq("is_archived", false)
     .eq("user_id", user.dataUserId)
     .order("created_at", { ascending: true })
-    .limit(1)
     .returns<DbPortfolio[]>();
 
   if (portfoliosError) {
@@ -1610,7 +1602,51 @@ export async function getDashboardData(user: CurrentPfpUser): Promise<DashboardD
     return demoData(`Demo data: Supabase portfolios query failed (${portfoliosError.message}).`);
   }
 
-  const portfolio = portfolios?.[0];
+  const { data: profile, error: profileError } = await supabase
+    .from("profiles")
+    .select("display_name")
+    .eq("id", user.dataUserId)
+    .returns<DbProfile[]>()
+    .maybeSingle();
+
+  if (profileError) {
+    if (!canUseDemoFallback()) {
+      throw new Error(`Supabase profile query failed (${profileError.message}).`);
+    }
+
+    return demoData(`Demo data: Supabase profile query failed (${profileError.message}).`);
+  }
+
+  const portfolioIds = (portfolios ?? []).map((portfolio) => portfolio.id);
+  const transactionCounts = new Map<string, number>();
+
+  if (portfolioIds.length > 0) {
+    const { data: portfolioTransactions, error: portfolioTransactionsError } = await supabase
+      .from("transactions")
+      .select("portfolio_id")
+      .in("portfolio_id", portfolioIds)
+      .returns<Array<{ portfolio_id: string }>>();
+
+    if (portfolioTransactionsError) {
+      if (!canUseDemoFallback()) {
+        throw new Error(`Supabase portfolio transaction count query failed (${portfolioTransactionsError.message}).`);
+      }
+
+      return demoData(`Demo data: Supabase portfolio transaction count query failed (${portfolioTransactionsError.message}).`);
+    }
+
+    for (const transaction of portfolioTransactions ?? []) {
+      transactionCounts.set(transaction.portfolio_id, (transactionCounts.get(transaction.portfolio_id) ?? 0) + 1);
+    }
+  }
+
+  const portfolio = selectSingleActivePortfolio(
+    (portfolios ?? []).map((portfolio): ActivePortfolio => ({
+      ...portfolio,
+      owner_display_name: profile?.display_name ?? null,
+      transaction_count: transactionCounts.get(portfolio.id) ?? 0,
+    })),
+  );
 
   if (!portfolio) {
     if (!canUseDemoFallback()) {
@@ -1618,6 +1654,30 @@ export async function getDashboardData(user: CurrentPfpUser): Promise<DashboardD
     }
 
     return demoData("Demo data: no portfolio rows were returned from Supabase.");
+  }
+
+  const expectedPortfolioName = expectedPortfolioNameForUser(user, portfolio.owner_display_name);
+
+  if (portfolio.name !== expectedPortfolioName) {
+    const { data: updatedPortfolios, error: updatePortfolioError } = await supabase
+      .from("portfolios")
+      .update({ name: expectedPortfolioName })
+      .eq("id", portfolio.id)
+      .eq("user_id", user.dataUserId)
+      .eq("is_archived", false)
+      .select("id,name,base_currency,cost_basis_method")
+      .returns<DbPortfolio[]>();
+
+    if (updatePortfolioError) {
+      if (!canUseDemoFallback()) {
+        throw new Error(`Supabase portfolio rename failed (${updatePortfolioError.message}).`);
+      }
+
+      return demoData(`Demo data: Supabase portfolio rename failed (${updatePortfolioError.message}).`);
+    }
+
+    const updatedPortfolio = updatedPortfolios?.[0];
+    portfolio.name = updatedPortfolio?.name ?? expectedPortfolioName;
   }
 
   const { data: transactions, error: transactionsError } = await supabase

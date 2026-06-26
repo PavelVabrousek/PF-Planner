@@ -1,6 +1,7 @@
 import { Pool } from "pg";
 import type { CurrentPfpUser } from "@/lib/auth/current-user";
 import { createPostgresPool } from "@/lib/db/postgres";
+import { getUserActivePortfolio } from "@/lib/portfolio/active-portfolio";
 
 type AssetRow = {
   id: string;
@@ -790,10 +791,27 @@ export async function recalculatePortfolioData(
     throw new Error("Missing PFP_SUPABASE_DATABASE_URL or DATABASE_URL.");
   }
 
-  const userId = user.dataUserId;
-  const portfolioName = process.env.PFP_PORTFOLIO_NAME ?? null;
   const { start, end, endDate } = getDateRange();
   const warnings: string[] = [];
+  const portfolio = await getUserActivePortfolio(pool, user);
+  const portfolioNameResult = portfolio?.name ?? "Portfolio";
+
+  if (!portfolio) {
+    const summary = {
+      portfolioName: portfolioNameResult,
+      assetsScanned: 0,
+      assetsUpdated: 0,
+      dailyPricesUpserted: 0,
+      corporateActionsUpserted: 0,
+      fxRatesUpserted: 0,
+      warnings,
+    };
+
+    await onProgress?.({ type: "start", portfolioName: portfolioNameResult, totalAssets: 0 });
+    await onProgress?.({ type: "complete", summary });
+
+    return summary;
+  }
 
   const assetsResult = await pool.query<PortfolioAssetRow>(
     `
@@ -815,14 +833,13 @@ export async function recalculatePortfolioData(
       (array_agg(dp.adjusted_close order by dp.price_date desc) filter (where dp.price_date is not null))[1] as latest_price_adjusted_close,
       (array_agg(dp.currency order by dp.price_date desc) filter (where dp.price_date is not null))[1]::text as latest_price_currency,
       (array_agg(dp.source order by dp.price_date desc) filter (where dp.price_date is not null))[1] as latest_price_source,
-      (min(dp.price_date) filter (where dp.source = $3::text or right(dp.source, length($4::text)) = $4::text))::text as earliest_unfinished_price_date
+      (min(dp.price_date) filter (where dp.source = $2::text or right(dp.source, length($3::text)) = $3::text))::text as earliest_unfinished_price_date
     from public.portfolios p
     join public.transactions t on t.portfolio_id = p.id
     join public.assets a on a.id = t.asset_id
     left join public.daily_prices dp on dp.asset_id = a.id
     where p.is_archived = false
-      and p.user_id = $1::uuid
-      and ($2::text is null or p.name = $2::text)
+      and p.id = $1::uuid
     group by
       p.id,
       p.name,
@@ -837,12 +854,11 @@ export async function recalculatePortfolioData(
       a.provider_symbol
     order by a.symbol
     `,
-    [userId, portfolioName, CARRIED_FORWARD_SOURCE, UNFINISHED_SOURCE_SUFFIX],
+    [portfolio.id, CARRIED_FORWARD_SOURCE, UNFINISHED_SOURCE_SUFFIX],
   );
 
-  const portfolioNameResult = assetsResult.rows[0]?.portfolio_name ?? portfolioName ?? "Portfolio";
   const assetCurrencies = new Set<string>();
-  let baseCurrency = "CZK";
+  let baseCurrency = portfolio.base_currency;
   let assetsUpdated = 0;
   let dailyPricesUpserted = 0;
   let corporateActionsUpserted = 0;

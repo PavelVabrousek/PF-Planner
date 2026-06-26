@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import type { Pool, PoolClient } from "pg";
-import { getCurrentPfpUser } from "@/lib/auth/current-user";
+import { getCurrentPfpUser, type CurrentPfpUser } from "@/lib/auth/current-user";
 import { createPostgresPool } from "@/lib/db/postgres";
+import { getUserActivePortfolio } from "@/lib/portfolio/active-portfolio";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -158,23 +159,8 @@ function transactionType(value: unknown): TransactionType {
   throw new Error("Unsupported transaction type.");
 }
 
-async function getPortfolio(pool: Pool, userId: string) {
-  const portfolioName = process.env.PFP_PORTFOLIO_NAME ?? null;
-  const result = await pool.query<PortfolioRow>(
-    `
-    select id, name, base_currency::text as base_currency
-    from public.portfolios
-    where user_id = $1::uuid
-      and is_archived = false
-    order by
-      case when $2::text is not null and name = $2::text then 0 else 1 end,
-      created_at asc
-    limit 1
-    `,
-    [userId, portfolioName],
-  );
-
-  return result.rows[0] ?? null;
+async function getPortfolio(pool: Pool, user: CurrentPfpUser) {
+  return getUserActivePortfolio(pool, user);
 }
 
 async function getAsset(client: PoolClient, assetId: string) {
@@ -335,7 +321,15 @@ export async function POST(request: Request) {
     return jsonError("Invalid JSON payload.");
   }
 
-  const portfolio = await getPortfolio(pool, auth.user.dataUserId);
+  let portfolio: PortfolioRow | null;
+
+  try {
+    portfolio = await getPortfolio(pool, auth.user);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to resolve active portfolio.";
+
+    return jsonError(message, 409);
+  }
 
   if (!portfolio) {
     return jsonError("No active portfolio found for the authenticated PFP user.", 404);

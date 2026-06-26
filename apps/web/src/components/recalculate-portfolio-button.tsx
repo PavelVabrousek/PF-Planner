@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Calculator, CheckCircle2, Loader2, RefreshCw, X, XCircle } from "lucide-react";
+import { IconTooltip } from "@/components/icon-tooltip";
 import { defaultNumberFormatPreferences, formatNumber, formatPercent } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -67,6 +68,7 @@ export function RecalculatePortfolioButton({
   const [warnings, setWarnings] = useState<string[]>([]);
   const [summary, setSummary] = useState<RecalculateSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const tooltipLabel = mode === "incremental" ? "Update market data" : "Recalculate portfolio";
 
   useEffect(() => {
     if (!isOpen || status !== "done") {
@@ -217,27 +219,29 @@ export function RecalculatePortfolioButton({
 
   return (
     <>
-      <div className="hidden items-center gap-2 md:flex">
-        <button
-          type="button"
-          aria-label={label}
-          title={label}
-          onClick={recalculate}
-          disabled={status === "running"}
-          className={cn(
-            "flex h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-panel text-slate-200 hover:border-neutral/50 hover:text-slate-50 disabled:cursor-wait disabled:opacity-70",
-            status === "done" && "border-positive/40 text-positive",
-            status === "error" && "border-negative/40 text-negative",
-          )}
-        >
-          {status === "running" ? (
-            <Loader2 size={15} className="animate-spin" />
-          ) : mode === "incremental" ? (
-            <RefreshCw size={15} />
-          ) : (
-            <Calculator size={15} />
-          )}
-        </button>
+      <div className="flex items-center">
+        <IconTooltip label={tooltipLabel}>
+          <button
+            type="button"
+            aria-label={label}
+            title={tooltipLabel}
+            onClick={recalculate}
+            disabled={status === "running"}
+            className={cn(
+              "flex h-8 w-8 items-center justify-center rounded-md border border-white/10 bg-panel text-slate-200 hover:border-neutral/50 hover:text-slate-50 disabled:cursor-wait disabled:opacity-70 sm:h-9 sm:w-9",
+              status === "done" && "border-positive/40 text-positive",
+              status === "error" && "border-negative/40 text-negative",
+            )}
+          >
+            {status === "running" ? (
+              <Loader2 size={15} className="animate-spin" />
+            ) : mode === "incremental" ? (
+              <RefreshCw size={15} />
+            ) : (
+              <Calculator size={15} />
+            )}
+          </button>
+        </IconTooltip>
       </div>
 
       {isOpen ? (

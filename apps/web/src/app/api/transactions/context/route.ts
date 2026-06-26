@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentPfpUser } from "@/lib/auth/current-user";
 import { createPostgresPool } from "@/lib/db/postgres";
+import { getUserActivePortfolio } from "@/lib/portfolio/active-portfolio";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -63,21 +64,15 @@ export async function GET() {
     );
   }
 
-  const portfolioName = process.env.PFP_PORTFOLIO_NAME ?? null;
-  const portfolioResult = await pool.query<PortfolioRow>(
-    `
-    select id, name, base_currency::text as base_currency
-    from public.portfolios
-    where user_id = $1::uuid
-      and is_archived = false
-    order by
-      case when $2::text is not null and name = $2::text then 0 else 1 end,
-      created_at asc
-    limit 1
-    `,
-    [auth.user.dataUserId, portfolioName],
-  );
-  const portfolio = portfolioResult.rows[0];
+  let portfolio: PortfolioRow | null;
+
+  try {
+    portfolio = await getUserActivePortfolio(pool, auth.user);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to resolve active portfolio.";
+
+    return NextResponse.json({ error: message }, { status: 409, headers: { "cache-control": "no-store" } });
+  }
 
   if (!portfolio) {
     return NextResponse.json(

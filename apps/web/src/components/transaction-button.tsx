@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { CheckCircle2, Loader2, Plus, Search, X } from "lucide-react";
+import { IconTooltip } from "@/components/icon-tooltip";
 import { defaultNumberFormatPreferences, formatCurrencyAmount, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -656,15 +657,17 @@ export function TransactionButton({ portfolioCurrency }: { portfolioCurrency: st
 
   return (
     <>
-      <button
-        type="button"
-        aria-label="New transaction"
-        title="New transaction"
-        onClick={() => setIsOpen(true)}
-        className="flex h-9 w-9 items-center justify-center rounded-md bg-neutral text-white hover:bg-blue-500"
-      >
-        <Plus size={16} />
-      </button>
+      <IconTooltip label="New transaction">
+        <button
+          type="button"
+          aria-label="New transaction"
+          title="New transaction"
+          onClick={() => setIsOpen(true)}
+          className="flex h-8 w-8 items-center justify-center rounded-md bg-neutral text-white hover:bg-blue-500 sm:h-9 sm:w-9"
+        >
+          <Plus size={16} />
+        </button>
+      </IconTooltip>
 
       {isOpen ? (
         <div className="fixed inset-0 z-50 grid min-h-screen place-items-center bg-black/55 px-3 py-4 backdrop-blur-sm">

@@ -99,15 +99,17 @@ export function ModeSwitcher({ activeModeId: currentModeId = "stocks" }: { activ
         type="button"
         aria-haspopup="menu"
         aria-expanded={isOpen}
+        aria-label="Switch PF Planner mode"
+        title="Switch PF Planner mode"
         onClick={() => setIsOpen((value) => !value)}
-        className="group -ml-1 flex min-w-0 items-center gap-2 rounded-md px-1 py-1 text-left hover:bg-white/5 focus:outline-none focus:ring-1 focus:ring-neutral/50"
+        className="group -ml-1 flex min-w-0 items-center gap-1.5 rounded-md px-1 py-1 text-left hover:bg-white/5 focus:outline-none focus:ring-1 focus:ring-neutral/50 sm:gap-2"
       >
-        <BrandMark className="h-8 w-8" />
+        <BrandMark className="h-7 w-7 shrink-0 sm:h-8 sm:w-8" />
         <span className="min-w-0 flex-1">
-          <span className="block text-[11px] uppercase tracking-[0.18em] text-slate-500">
+          <span className="block truncate text-[10px] uppercase tracking-[0.16em] text-slate-500 sm:text-[11px] sm:tracking-[0.18em]">
             PF Planner
           </span>
-          <span className="block truncate text-base font-semibold text-slate-50 sm:text-lg">
+          <span className="block truncate text-sm font-semibold text-slate-50 sm:text-lg">
             {activeMode.title}
           </span>
         </span>
@@ -118,6 +120,9 @@ export function ModeSwitcher({ activeModeId: currentModeId = "stocks" }: { activ
             isOpen && "rotate-180 text-blue-300",
           )}
         />
+        <span className="pointer-events-none invisible absolute left-0 top-[calc(100%+0.45rem)] z-[90] whitespace-nowrap rounded-md border border-white/10 bg-surface px-2 py-1 text-[11px] font-medium text-slate-200 opacity-0 shadow-panel transition duration-150 md:group-hover:visible md:group-hover:opacity-100 md:group-focus-within:visible md:group-focus-within:opacity-100">
+          Switch PF Planner mode
+        </span>
       </button>
 
       {isOpen ? (
