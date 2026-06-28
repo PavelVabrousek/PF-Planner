@@ -1157,6 +1157,7 @@ function buildHoldings(
       return {
         assetId,
         symbol: aggregate.asset.symbol,
+        providerSymbol: aggregate.asset.provider_symbol,
         name: aggregate.asset.name ?? aggregate.asset.symbol,
         type: aggregate.asset.asset_type === "CASH" ? "ETF" : aggregate.asset.asset_type,
         broker: aggregate.asset.broker,

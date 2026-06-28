@@ -15,6 +15,7 @@ import {
   YAxis,
 } from "recharts";
 import {
+  ExternalLink,
   LineChart,
   MoreHorizontal,
   Pencil,
@@ -34,12 +35,13 @@ import {
 import type { AssetChartEvent, BuyTransactionHistoryRow, DividendHistoryRow } from "@/lib/portfolio-data";
 import { cn } from "@/lib/utils";
 
-type HoldingAction = "chart" | "history" | "edit" | "sell" | "buy";
-type ModalHoldingAction = Exclude<HoldingAction, "chart" | "history">;
+type HoldingAction = "chart" | "history" | "google-finance" | "edit" | "sell" | "buy";
+type ModalHoldingAction = Exclude<HoldingAction, "chart" | "history" | "google-finance">;
 
 type HoldingActionData = {
   assetId: string;
   symbol: string;
+  providerSymbol?: string | null;
   name: string;
   broker: string;
   type: string;
@@ -65,6 +67,7 @@ type MenuDirection = "down" | "up";
 const actionItems = [
   { id: "chart", label: "Display chart", icon: LineChart },
   { id: "history", label: "Transaction history", icon: ScrollText },
+  { id: "google-finance", label: "Google Finance", icon: ExternalLink },
   { id: "edit", label: "Edit Holdings", icon: Pencil },
   { id: "sell", label: "Sell", icon: TrendingDown },
   { id: "buy", label: "Buy", icon: Plus },
@@ -99,6 +102,79 @@ function modalTitle(action: HoldingAction) {
   }
 
   return "Buy";
+}
+
+const googleFinanceSymbolOverrides: Record<string, string> = {
+  GOOGL: "GOOGL:NASDAQ",
+  INTC: "INTC:NASDAQ",
+  MU: "MU:NASDAQ",
+  NFLX: "NFLX:NASDAQ",
+  RSP: "RSP:NYSEARCA",
+};
+
+const googleFinanceYahooSuffixes: Record<string, string> = {
+  AS: "AMS",
+  BR: "EBR",
+  CO: "CPH",
+  DE: "ETR",
+  F: "FRA",
+  L: "LON",
+  PA: "EPA",
+  SW: "SWX",
+  VI: "VIE",
+  WA: "WSE",
+};
+
+function googleFinanceQuoteFromProviderSymbol(providerSymbol: string) {
+  const symbol = providerSymbol.trim().toUpperCase();
+  const override = googleFinanceSymbolOverrides[symbol];
+
+  if (override) {
+    return override;
+  }
+
+  const [ticker, suffix] = symbol.split(".");
+
+  if (!ticker || !suffix) {
+    return null;
+  }
+
+  const exchange = googleFinanceYahooSuffixes[suffix];
+
+  return exchange ? `${ticker}:${exchange}` : null;
+}
+
+function fallbackGoogleFinanceQuote(holding: HoldingActionData) {
+  const symbol = holding.symbol.trim().toUpperCase();
+  const override = googleFinanceSymbolOverrides[symbol];
+
+  if (override) {
+    return override;
+  }
+
+  if (holding.currency === "USD") {
+    return `${symbol}:NASDAQ`;
+  }
+
+  if (holding.currency === "EUR") {
+    return `${symbol}:ETR`;
+  }
+
+  return null;
+}
+
+function googleFinanceUrl(holding: HoldingActionData) {
+  const quote =
+    (holding.providerSymbol ? googleFinanceQuoteFromProviderSymbol(holding.providerSymbol) : null) ??
+    fallbackGoogleFinanceQuote(holding);
+
+  if (!quote) {
+    return `https://www.google.com/search?q=${encodeURIComponent(`${holding.symbol} Google Finance`)}`;
+  }
+
+  const [ticker, exchange] = quote.split(":");
+
+  return `https://www.google.com/finance/quote/${encodeURIComponent(ticker)}:${encodeURIComponent(exchange)}`;
 }
 
 function TransactionHistoryScaffold({
@@ -1599,6 +1675,11 @@ export function HoldingActions({
     if (action === "chart") {
       setIsChartOpen(true);
       focusChartWindow();
+      return;
+    }
+
+    if (action === "google-finance") {
+      window.open(googleFinanceUrl(holding), "_blank", "noopener,noreferrer");
       return;
     }
 

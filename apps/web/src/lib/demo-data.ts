@@ -12,6 +12,7 @@ import {
 
 export type Holding = {
   symbol: string;
+  providerSymbol?: string | null;
   name: string;
   type: "STOCK" | "ETF" | "CRYPTO" | "CASH";
   broker: string;
